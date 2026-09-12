@@ -20,10 +20,14 @@ const VERSION = "0.1.0";
  * 参数补全：四个模式，用 pi-tui 的 fuzzyFilter。
  *
  * 与宿主内置命令（`/model`、`/thinking`、`/login`）同一个匹配器，
- * 因此首字母与子序列都能命中；prefix 为空时返回全部四项，
- * 这正是「输入 `xpi-prototype-design` 加空格即列出选项」的实现方式。
+ * 因此首字母与子序列都能命中。
+ *
+ * prefix 为空时返回 null：`/xpi-prototype-design` 后面刚敲下空格的那一刻不弹列表，
+ * 选项改由回车触发 handler 里的 `ctx.ui.select` 面板给出（见 promptForMode）。
  */
 function completions(prefix: string): AutocompleteItem[] | null {
+  // 空 prefix 覆盖两种情形：只有命令名，或命令名加空格。都不弹。
+  if (prefix.trim() === "") return null;
   const items: AutocompleteItem[] = MODES.map((mode) => ({
     label: mode,
     value: mode,

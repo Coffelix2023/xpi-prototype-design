@@ -95,12 +95,14 @@ describe("extension registration", () => {
       "prototype_snapshot",
       "prototype_status",
     ]);
-    expect(command?.getArgumentCompletions?.("")).toEqual(
-      MODES.map((mode) => ({
-        label: mode,
-        value: mode,
-      })),
-    );
+    // 空 prefix 不补全：敲完命令再按空格不该弹出模式列表，回车走 select 面板。
+    expect(command?.getArgumentCompletions?.("")).toBeNull();
+    expect(command?.getArgumentCompletions?.("   ")).toBeNull();
+    expect(
+      command?.getArgumentCompletions?.("hifi")?.map((item) => item.value),
+    ).toEqual([
+      "hifi",
+    ]);
   });
 
   it("filters modes fuzzy, so a first letter is enough", () => {
