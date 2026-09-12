@@ -8,13 +8,16 @@
 **做什么**
 
 - 在目标项目 `cwd` 内生成与迭代两类原型产物：`wireframe`（灰阶 + 内联 SVG 结构稿）、`hifi`（自包含 HTML 高保真稿）。
-- 维护产物骨架 `<cwd>/.pi/prototype-design/<kind>/`；`THEMES.md` 缺失时把包内模板复制到项目根。
+- 维护产物骨架 `<cwd>/.pi/prototype-design/<project>/<kind>/`；`THEMES.md` 缺失时把包内模板复制到项目根。
+- 提供四个命令模式：`wireframe` / `hifi` / `update` / `archive`。前三者 kick off agent；`archive` 由命令层直接完成，不唤起 agent。
 - 维护版本链：`current/` 是工作副本，`vN/` 是不可变快照，`CHANGELOG.md` 倒序记账并给出回滚命令。
+- 维护归档：把整个 `<project>/<kind>/` 移进 `archive/`，并在 `archive/CHANGELOG.md` 记录含恢复命令的条目。
 - 通过 `skills/xpi-prototype-design/SKILL.md` 告诉 agent 每个阶段该调用哪些设计技能。
 
 **不做什么**
 
 - 不产出可直接合并的产品组件代码——那是目标项目自身的职责。
+- 不替用户判断「某个项目做完了没有」——是否归档由用户在面板里决定，扩展只执行归档动作。
 - 不启动受控浏览器、不建 CDP 会话；像素级评审交给 `xpi-visualoop`。本扩展只用平台原生命令打开系统默认浏览器。
 - 不修改 Pi 的 system prompt；不接管终端渲染；不访问网络。
 - 不写入任何密钥，不做遥测。
@@ -63,10 +66,12 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
 - **视觉与 TUI 规范**：所有涉及终端渲染、状态栏、通知与字符排版的改动，必须严格遵循根目录 `DESIGN.md` 中的 Token 与 8 大章节规范。
 
 ## 5. 命令与开发回路
+
 ```bash
 pnpm typecheck        # tsc --noEmit
 pnpm -w run lint      # workspace root: biome check .
 pnpm test             # vitest run
 ```
+
 - 提交前三条全绿。
 - 若 lint 输出意外出现 ESLint,先确认 `scripts.lint` 仍为 `biome check .`,再运行 `pnpm exec biome check .` 诊断;禁止安装 ESLint。

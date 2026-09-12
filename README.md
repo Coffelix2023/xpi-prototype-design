@@ -56,22 +56,26 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 
 | Command | Description |
 | --- | --- |
-| `/xpi-prototype-design` | Show both stages: versions, current output count, CHANGELOG head, `THEMES.md` status |
-| `/xpi-prototype-design wireframe <requirement>` | Scaffold the wireframe stage and dispatch `skills/xpi-prototype-design/SKILL.md` |
-| `/xpi-prototype-design hifi <requirement>` | Scaffold the hifi stage and dispatch the same skill |
+| `/xpi-prototype-design` | List the four modes and pick one |
+| `/xpi-prototype-design wireframe <requirement>` | Start a wireframe design |
+| `/xpi-prototype-design hifi [<requirement>]` | Start a hifi design — build on an existing wireframe, or go from scratch |
+| `/xpi-prototype-design update` | Pick an existing project to revise |
+| `/xpi-prototype-design archive` | Pick a finished project to archive |
 
-Both stages are discoverable through argument completion on the command.
+Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all four.
+
+The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent.
 
 ### Tools
 
 | Tool | Reads | Changes | Refuses |
 | --- | --- | --- | --- |
-| `prototype_setup` | `<cwd>/.pi/prototype-design/<kind>/`, `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; copies the bundled `THEMES.md` when absent | Never overwrites an existing document or `THEMES.md` |
-| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<kind>/current/` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry | Refuses when `current/` is empty |
-| `prototype_status` | Both stages | Nothing | Never writes |
-| `prototype_preview` | `<cwd>/.pi/prototype-design/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
+| `prototype_setup` | `<cwd>/.pi/prototype-design/<project>/<kind>/`, `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; copies the bundled `THEMES.md` when absent | Never overwrites an existing document or `THEMES.md` |
+| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry | Refuses when `current/` is empty |
+| `prototype_status` | One `(project, kind)`; every live one when `project` is omitted | Nothing | Never writes |
+| `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
 
-Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the model. Tool output is capped at 2000 characters.
+`project` is a trust boundary: it must match `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`, validated twice (tool schema and `artifacts.ts`). Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the model. Tool output is capped at 2000 characters.
 
 ### Artifacts
 
@@ -79,14 +83,20 @@ Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the mo
 <cwd>/
 ├── THEMES.md                          # shadcn oklch tokens — the theme's source of truth
 └── .pi/prototype-design/
-    └── wireframe/                     # or hifi/
-        ├── plan.md                    # requirements; overwritten each round
-        ├── principles.md              # hard constraints for the stage
-        ├── DELTA.md                   # hifi only: deviations from the wireframe
-        ├── CHANGELOG.md               # reverse-chronological, newest first
-        ├── current/                   # working copy — edit here
-        └── v1/ v2/ ...                # immutable snapshots
+    ├── <project>/                     # kebab-case, e.g. subscription-page
+    │   └── <kind>/                    # wireframe | hifi
+    │       ├── plan.md                # requirements; overwritten each round
+    │       ├── principles.md          # hard constraints for the stage
+    │       ├── DELTA.md               # hifi only: deviations from the wireframe
+    │       ├── CHANGELOG.md           # reverse-chronological, newest first
+    │       ├── current/               # working copy — edit here
+    │       └── v1/ v2/ ...            # immutable snapshots
+    └── archive/
+        ├── CHANGELOG.md               # archive log, with restore commands
+        └── 2026-09-13-subscription-page-hifi/
 ```
+
+Version numbers count per **stage**, not per project: `wireframe` and `hifi` under one project each keep their own `vN`. Archiving moves a whole `<kind>/` directory into `archive/` and is reversible via the command recorded in the log.
 
 ## Development
 

@@ -55,22 +55,26 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 | 命令 | 说明 |
 | --- | --- |
-| `/xpi-prototype-design` | 显示两个阶段的版本、当前产出数量、CHANGELOG 顶部与 `THEMES.md` 状态 |
-| `/xpi-prototype-design wireframe <需求>` | 建好线框阶段骨架,并展开 `skills/xpi-prototype-design/SKILL.md` |
-| `/xpi-prototype-design hifi <需求>` | 建好高保真阶段骨架,并展开同一份技能文档 |
+| `/xpi-prototype-design` | 列出四个模式并选一个 |
+| `/xpi-prototype-design wireframe <需求>` | 开始线框设计 |
+| `/xpi-prototype-design hifi [<需求>]` | 开始高保真设计 —— 可选基于某个已有线框，或从零开始 |
+| `/xpi-prototype-design update` | 选一个已有项目进行修改 |
+| `/xpi-prototype-design archive` | 选一个已完成项目归档 |
 
-两个阶段都可以用命令的参数补全直接选出来。
+补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部四项。
+
+命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent。
 
 ### 工具
 
 | 工具 | 读什么 | 改什么 | 拒绝什么 |
 | --- | --- | --- | --- |
-| `prototype_setup` | `<cwd>/.pi/prototype-design/<kind>/`、`<cwd>/THEMES.md` | 补建缺失的目录与文档骨架;`THEMES.md` 缺失时复制包内模板 | 绝不覆写已存在的文档或 `THEMES.md` |
-| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<kind>/current/` | 写出 `v<N>/`,并在 `CHANGELOG.md` 顶部插入一条记录 | `current/` 为空时拒绝执行 |
-| `prototype_status` | 两个阶段 | 不修改任何东西 | 绝不写盘 |
-| `prototype_preview` | `<cwd>/.pi/prototype-design/<kind>/current/` | 用系统默认浏览器打开该文件 | 拒绝任何越出 `current/` 的路径 |
+| `prototype_setup` | `<cwd>/.pi/prototype-design/<project>/<kind>/`、`<cwd>/THEMES.md` | 补建缺失的目录与文档骨架；`THEMES.md` 缺失时复制包内模板 | 绝不覆写已存在的文档或 `THEMES.md` |
+| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | 写出 `v<N>/`，并在 `CHANGELOG.md` 顶部插入一条记录 | `current/` 为空时拒绝执行 |
+| `prototype_status` | 某个 `(project, kind)`；省略 `project` 时汇总全部活跃项 | 不修改任何东西 | 绝不写盘 |
+| `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | 用系统默认浏览器打开该文件 | 拒绝任何越出 `current/` 的路径 |
 
-所有路径都由 `ctx.cwd` 推导,任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
+`project` 是信任边界：必须匹配 `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`，两层校验（工具 schema 与 `artifacts.ts`）。所有路径都由 `ctx.cwd` 推导，任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
 
 ### 产物结构
 
@@ -78,14 +82,20 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 <cwd>/
 ├── THEMES.md                          # shadcn oklch token —— 主题的事实来源
 └── .pi/prototype-design/
-    └── wireframe/                     # 或 hifi/
-        ├── plan.md                    # 需求;每轮深挖后覆写
-        ├── principles.md              # 本阶段的硬约束
-        ├── DELTA.md                   # 仅 hifi:相对线框的结构偏离
-        ├── CHANGELOG.md               # 倒序,最新在最上方
-        ├── current/                   # 工作副本 —— 改这里
-        └── v1/ v2/ ...                # 不可变快照
+    ├── <project>/                     # kebab-case，例如 subscription-page
+    │   └── <kind>/                    # wireframe | hifi
+    │       ├── plan.md                # 需求；每轮深挖后覆写
+    │       ├── principles.md          # 本阶段的硬约束
+    │       ├── DELTA.md               # 仅 hifi：相对线框的结构偏离
+    │       ├── CHANGELOG.md           # 倒序，最新在最上方
+    │       ├── current/               # 工作副本 —— 改这里
+    │       └── v1/ v2/ ...            # 不可变快照
+    └── archive/
+        ├── CHANGELOG.md               # 归档日志，含恢复命令
+        └── 2026-09-13-subscription-page-hifi/
 ```
+
+版本号按**阶段**递增，不按项目：同一项目下的 `wireframe` 与 `hifi` 各数各的 `vN`。归档把整个 `<kind>/` 目录移进 `archive/`，可凭日志里记录的命令恢复。
 
 ## 开发
 
