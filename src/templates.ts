@@ -59,11 +59,19 @@ const PLAN_WIREFRAME = `# plan.md — wireframe
 - [ ] layout-grid
 - [ ] navigation-patterns
 
-## 8. 成功标准
+## 8. 任务编排
+
+> 产出顺序与依赖。**仅保存计划**时到此为止；用户说「开始执行」就从第一个未完成项接着做。
+
+| # | 任务 | 依赖 | 产出 | 技能 |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | 首页结构 | — | \`screens/01-home.html\` | \`wireframe-spec\` |
+| 2 | 空 / 加载 / 错误态 | 1 | \`screens/01-home--empty.html\` 等 | \`wireframe-spec\` |
+
+## 9. 成功标准
 
 - [ ]
-
-## 9. 未决问题
+## 10. 未决问题
 
 - [ ]
 `;
@@ -110,12 +118,20 @@ const PLAN_HIFI = `# plan.md — hifi
 - [ ] state-machine
 - [ ] micro-interaction-spec
 - [ ] design-qa-checklist
+## 7. 任务编排
 
-## 7. 成功标准
+> 产出顺序与依赖。**仅保存计划**时到此为止；用户说「开始执行」就从第一个未完成项接着做。
+
+| # | 任务 | 依赖 | 产出 | 技能 |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | 首页高保真骨架 | — | \`index.html\` | \`design-token\`、\`typography-scale\` |
+| 2 | sidebar + 分栏拖拽 | 1 | \`index.html\` | \`component-spec\`、\`micro-interaction-spec\` |
+| 3 | 状态覆盖齐全 | 1 | \`index.html\` | \`loading-states\`、\`error-handling-ux\` |
+
+## 8. 成功标准
 
 - [ ]
-
-## 8. 未决问题
+## 9. 未决问题
 
 - [ ]
 `;

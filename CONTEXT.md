@@ -25,6 +25,7 @@
 | 像素评审 | 用 `xpi-visualoop` 抓真实渲染像素并让用户圈选反馈。 | 受控 Chromium + 独立 profile |
 | 归档 (archive) | 把整个 `<project>/<kind>/` 移进 `archive/` 的动作。 | 可逆；命令层直接执行，不经过 agent |
 | 恢复命令 | 归档日志里记录的反向 `mkdir -p` + `mv`。 | 由工具生成，可直接粘贴执行 |
+| 计划闸门 (plan gate) | 深挖结束后、首次产出前的一次三选一确认：仅保存计划 / 保存后立即执行 / 还有需要补充的。 | 见 `SKILL.md` §5.1；停止提问不等于开始产出 |
 
 ## 避免用词 (Banned Synonyms)
 
