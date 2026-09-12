@@ -199,26 +199,29 @@ async function pickStage(
 /**
  * 通知 + kick off。
  *
- * 需求没写在命令里时（`rest` 为空）不直接发送，而是把 kickoff 预填回输入框，
- * 让用户补完目标再回车——空发只会让 agent 反问一轮，白烧一次对话。
- * 无对话框能力的模式（print / json）没法预填，退化成直接发送。
+ * 需求没写在命令里时（`rest` 为空）不空发消息，先弹一个输入框收需求，
+ * 与 xpi-research 的 `ctx.ui.input` 同款：单行足够，Esc 取消即放弃整轮。
+ * 输入框留空是允许的——无需求也能起一轮，只是 agent 会自己深挖。
+ * 无对话框能力的模式（print / json）弹不出来，退化成直接发送。
  *
  * 刻意不在这里建骨架：项目 slug 由 agent 深挖后决定（见 SKILL.md），
  * 命令层只负责选模式与触发，避免猜错项目名后留下空目录。
  */
-function fire(
+async function fire(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   target: string,
   rest: string,
-): void {
-  const prompt = kickoff(target, rest);
+): Promise<void> {
+  let prompt = kickoff(target, rest);
   if (rest === "" && ctx.hasUI) {
-    ctx.ui.notify(
-      `xpi-prototype-design ${VERSION} · ${target} · 已在输入框预填，补充需求后回车`,
+    const entered = await ctx.ui.input(
+      `${target} · 需求（可留空）`,
+      "例如：订阅页，含月付/年付切换与账单历史",
     );
-    ctx.ui.setEditorText(`${prompt} `);
-    return;
+    // 取消：不猜，整轮放弃。
+    if (entered === undefined) return;
+    prompt = kickoff(target, entered.trim());
   }
   ctx.ui.notify(`xpi-prototype-design ${VERSION} · ${target}`);
   pi.sendUserMessage(prompt, {
@@ -238,7 +241,7 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
       if (!mode) return;
 
       if (mode === "wireframe") {
-        fire(pi, ctx, "wireframe", parsed.rest);
+        await fire(pi, ctx, "wireframe", parsed.rest);
         return;
       }
 
@@ -247,14 +250,14 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
         if (!entry) return;
         const target =
           entry.kind === "based-on" ? `hifi --based-on ${entry.project}` : "hifi";
-        fire(pi, ctx, target, parsed.rest);
+        await fire(pi, ctx, target, parsed.rest);
         return;
       }
 
       if (mode === "update") {
         const stage = await pickStage(ctx, "xpi-prototype-design：要修改哪个项目");
         if (!stage) return;
-        fire(
+        await fire(
           pi,
           ctx,
           `update --project ${stage.project} --kind ${stage.kind}`,

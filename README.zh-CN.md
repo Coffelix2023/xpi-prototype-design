@@ -63,7 +63,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部四项。
 
-不写需求时不会空发消息，而是把 kickoff 预填进输入框：你补上目标再回车。只有没有输入框的运行模式（print / json）才会直接发送。
+不写需求时会弹一个单行需求框（与 `/xpi-research` 的目标输入框同款）：填了就随命令一起发出，留空回车等于「无需求」照常启动，Esc 取消则整轮放弃。只有没有输入框的运行模式（print / json）才会跳过这一步直接发送。
 
 命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent。
 

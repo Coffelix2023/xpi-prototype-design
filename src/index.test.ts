@@ -56,7 +56,7 @@ function harness(): Harness {
 let root = "";
 let notify: ReturnType<typeof vi.fn>;
 let select: ReturnType<typeof vi.fn>;
-let setEditorText: ReturnType<typeof vi.fn>;
+let input: ReturnType<typeof vi.fn>;
 
 function commandContext(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -66,7 +66,7 @@ function commandContext(overrides: Record<string, unknown> = {}): unknown {
     ui: {
       notify,
       select,
-      setEditorText,
+      input,
     },
     ...overrides,
   };
@@ -77,7 +77,8 @@ beforeEach(async () => {
   notify = vi.fn();
   // 默认模拟非 TUI 模式：select 不可用，永远返回 undefined。
   select = vi.fn().mockResolvedValue(undefined);
-  setEditorText = vi.fn();
+  // 默认模拟用户在需求框里直接回车：留空也算合法输入，照发裸 kickoff。
+  input = vi.fn().mockResolvedValue("");
 });
 
 afterEach(async () => {
@@ -137,9 +138,11 @@ describe("mode picker", () => {
     expect(options).toHaveLength(4);
     for (const mode of MODES)
       expect(options.some((o) => o.startsWith(mode))).toBe(true);
-    // 没写需求时不空发消息：kickoff 预填回输入框，用户补完再回车。
-    expect(sendUserMessage).not.toHaveBeenCalled();
-    expect(setEditorText).toHaveBeenCalledWith("/skill:xpi-prototype-design hifi ");
+    // 没写需求时先弹需求框，而不是空发消息。
+    expect(input).toHaveBeenCalledTimes(1);
+    expect(sendUserMessage).toHaveBeenCalledWith("/skill:xpi-prototype-design hifi", {
+      expandPromptTemplates: true,
+    });
   });
 
   it("falls back to the usage notice when the picker is unavailable", async () => {
@@ -184,18 +187,32 @@ describe("stage invocation", () => {
     await expect(stat(join(root, "THEMES.md"))).rejects.toThrow();
   });
 
-  it("prefills the kickoff into the editor when no requirement was typed", async () => {
+  it("asks for the requirement and sends it when no requirement was typed", async () => {
+    input.mockResolvedValue("  一个订阅页  ");
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("wireframe", commandContext());
-    expect(setEditorText).toHaveBeenCalledWith(
-      "/skill:xpi-prototype-design wireframe ",
+
+    // 需求框的标题要能说明当前在配哪个 target。
+    expect(String(input.mock.calls[0]?.[0])).toContain("wireframe · 需求");
+    expect(String(input.mock.calls[0]?.[1])).toContain("例如");
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "/skill:xpi-prototype-design wireframe 一个订阅页",
+      {
+        expandPromptTemplates: true,
+      },
     );
-    expect(sendUserMessage).not.toHaveBeenCalled();
-    expect(String(notify.mock.calls[0]?.[0])).toContain("已在输入框预填");
   });
 
-  it("still sends straight away when the run mode cannot prefill the editor", async () => {
-    // print / json 没有输入框，预填会静默丢失并卡住流程，只能照发。
+  it("abandons the round when the requirement dialog is cancelled", async () => {
+    input.mockResolvedValue(undefined);
+    const { commands, sendUserMessage } = harness();
+    await commands.get("xpi-prototype-design")?.handler("wireframe", commandContext());
+
+    expect(sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("skips the requirement dialog when the run mode has none", async () => {
+    // print / json 没有输入框，弹不出来也问不到需求，只能照发。
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler(
       "wireframe",
@@ -205,7 +222,7 @@ describe("stage invocation", () => {
       }),
     );
 
-    expect(setEditorText).not.toHaveBeenCalled();
+    expect(input).not.toHaveBeenCalled();
     expect(sendUserMessage).toHaveBeenCalledWith(
       "/skill:xpi-prototype-design wireframe",
       {
@@ -223,8 +240,8 @@ describe("stage invocation", () => {
       commands.get("xpi-prototype-design")?.handler("hifi", commandContext()),
     ).resolves.toBeUndefined();
 
-    expect(setEditorText).toHaveBeenCalledTimes(1);
-    expect(sendUserMessage).not.toHaveBeenCalled();
+    expect(input).toHaveBeenCalledTimes(1);
+    expect(sendUserMessage).toHaveBeenCalledTimes(1);
     await expect(stat(join(root, "THEMES.md"))).rejects.toThrow();
   });
 });
@@ -268,14 +285,16 @@ describe("hifi dual entry", () => {
   });
 
   it("skips the picker and recommends wireframe first when none exists", async () => {
-    const { commands } = harness();
+    const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("hifi", commandContext());
 
     expect(select).not.toHaveBeenCalled();
     expect(String(notify.mock.calls[0]?.[0])).toContain(
       "建议先跑 /xpi-prototype-design wireframe",
     );
-    expect(setEditorText).toHaveBeenCalledWith("/skill:xpi-prototype-design hifi ");
+    expect(sendUserMessage).toHaveBeenCalledWith("/skill:xpi-prototype-design hifi", {
+      expandPromptTemplates: true,
+    });
   });
 
   it("goes from scratch when the run mode has no dialog UI", async () => {
