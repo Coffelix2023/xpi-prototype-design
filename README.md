@@ -2,9 +2,9 @@
 
 **English** · [简体中文](./README.zh-CN.md)
 
-**A Pi Coding Agent extension that &lt;does one thing well&gt;.** <!-- TODO: replace with one concrete sentence: what it does, for whom, and what it replaces or removes. -->
+**A Pi Coding Agent extension that turns design discussions into versioned, reviewable prototype artifacts.**
 
-**一个 &lt;把一件事做好&gt; 的 Pi Coding Agent 扩展。** <!-- TODO: 同上,中文一句话说清本扩展做什么、给谁用、替代了什么。 -->
+**把设计讨论落成可版本化、可评审的原型产物的 Pi Coding Agent 扩展。**
 
 <!-- TODO: add a LICENSE file (MIT) — the badge below links to it -->
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
@@ -15,7 +15,7 @@
 
 ## Why
 
-<!-- TODO: describe the concrete pain this extension removes. One short paragraph beats a feature list. -->
+While the design conversation is in the chat it is fine; the moment it ends, nobody can tell which revision was approved. A wireframe gets signed off, the high-fidelity pass quietly drops a CTA, and the only record is scrollback. This extension keeps the loop on disk, inside the project, and versioned: structured discovery rounds land in a `plan.md`, output goes into a `current/` working copy, and every round is snapshotted to `vN/` with a rollback command recorded in one reverse-chronological `CHANGELOG.md`. Theme tokens come from a `THEMES.md` that the extension scaffolds once and never overwrites.
 
 Every extension in this repository starts from the same four rules:
 
@@ -61,9 +61,37 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 
 | Command | Description |
 | --- | --- |
-| `/xpi-prototype-design` | Show the extension status and the loaded version |
+| `/xpi-prototype-design` | Show both stages: versions, current output count, CHANGELOG head, `THEMES.md` status |
+| `/xpi-prototype-design wireframe <requirement>` | Scaffold the wireframe stage and dispatch `skills/xpi-prototype-design/SKILL.md` |
+| `/xpi-prototype-design hifi <requirement>` | Scaffold the hifi stage and dispatch the same skill |
 
-<!-- TODO: document every tool and command with its honest boundary: what it reads, what it changes, and what it refuses to do. -->
+Both stages are discoverable through argument completion on the command.
+
+### Tools
+
+| Tool | Reads | Changes | Refuses |
+| --- | --- | --- | --- |
+| `prototype_setup` | `<cwd>/.pi/prototype-design/<kind>/`, `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; copies the bundled `THEMES.md` when absent | Never overwrites an existing document or `THEMES.md` |
+| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<kind>/current/` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry | Refuses when `current/` is empty |
+| `prototype_status` | Both stages | Nothing | Never writes |
+| `prototype_preview` | `<cwd>/.pi/prototype-design/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
+
+Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the model. Tool output is capped at 2000 characters.
+
+### Artifacts
+
+```text
+<cwd>/
+├── THEMES.md                          # shadcn oklch tokens — the theme's source of truth
+└── .pi/prototype-design/
+    └── wireframe/                     # or hifi/
+        ├── plan.md                    # requirements; overwritten each round
+        ├── principles.md              # hard constraints for the stage
+        ├── DELTA.md                   # hifi only: deviations from the wireframe
+        ├── CHANGELOG.md               # reverse-chronological, newest first
+        ├── current/                   # working copy — edit here
+        └── v1/ v2/ ...                # immutable snapshots
+```
 
 ## Development
 
@@ -98,9 +126,16 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
 .
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
+├── THEMES.md                  # bundled shadcn token template, copied into target projects
 ├── docs/                      # Git workflow and repository guardrails
+├── skills/xpi-prototype-design/SKILL.md   # stage flow + which design skills to call
 └── src/
-    └── index.ts               # Extension entrypoint (register function)
+    ├── index.ts               # Extension entrypoint (register) + the two subcommands
+    ├── contracts.ts           # Kind enum, directory layout, CHANGELOG format
+    ├── templates.ts           # plan / principles / DELTA / CHANGELOG skeletons
+    ├── artifacts.ts           # fs: setup, snapshot, state, preview target
+    ├── preview.ts             # OS-default-browser launcher
+    └── tools.ts               # the four registered tools
 ```
 
 ## Design baseline

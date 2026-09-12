@@ -3,7 +3,21 @@
 > 本文件是本仓库内 AI Agent 与人类开发者的**唯一事实来源 (Single Source of Truth)**。
 > 所有变更必须可解释、可回滚。当口头约定、历史代码与本文件冲突时,**以本文件为准**。
 
-<!-- TODO: 定义本扩展职责边界(这个扩展做什么、不做什么) -->
+## 职责边界
+
+**做什么**
+
+- 在目标项目 `cwd` 内生成与迭代两类原型产物：`wireframe`（灰阶 + 内联 SVG 结构稿）、`hifi`（自包含 HTML 高保真稿）。
+- 维护产物骨架 `<cwd>/.pi/prototype-design/<kind>/`；`THEMES.md` 缺失时把包内模板复制到项目根。
+- 维护版本链：`current/` 是工作副本，`vN/` 是不可变快照，`CHANGELOG.md` 倒序记账并给出回滚命令。
+- 通过 `skills/xpi-prototype-design/SKILL.md` 告诉 agent 每个阶段该调用哪些设计技能。
+
+**不做什么**
+
+- 不产出可直接合并的产品组件代码——那是目标项目自身的职责。
+- 不启动受控浏览器、不建 CDP 会话；像素级评审交给 `xpi-visualoop`。本扩展只用平台原生命令打开系统默认浏览器。
+- 不修改 Pi 的 system prompt；不接管终端渲染；不访问网络。
+- 不写入任何密钥，不做遥测。
 
 ## 0. TL;DR(Agent 执行守则)
 
@@ -47,24 +61,12 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
 - **配置与密钥**:配置解析 fail-closed;Token/API Key 绝不写入代码、日志、示例或文档,仅经环境变量或 `chmod 0600` 文件存储,日志一律脱敏。
 
 - **视觉与 TUI 规范**：所有涉及终端渲染、状态栏、通知与字符排版的改动，必须严格遵循根目录 `DESIGN.md` 中的 Token 与 8 大章节规范。
-## 5. 命令与开发回路
 
+## 5. 命令与开发回路
 ```bash
 pnpm typecheck        # tsc --noEmit
 pnpm -w run lint      # workspace root: biome check .
 pnpm test             # vitest run
 ```
-
 - 提交前三条全绿。
 - 若 lint 输出意外出现 ESLint,先确认 `scripts.lint` 仍为 `biome check .`,再运行 `pnpm exec biome check .` 诊断;禁止安装 ESLint。
-- **冒烟**:`pi -e ./src/index.ts`(quick test,不支持热载)。
-- **日常开发**:软链到 `~/.pi/agent/extensions/xpi-prototype-design`,在 Pi 内 `/reload` 热载。
-
-## 6. Git 与回滚纪律
-- 只要任务碰到 git / GitHub / 远端仓库 / release，先读 `docs/GIT-WORKFLOW.md`，再读 `docs/GITHUB-GUARD.md`。
-- 先做 `git branch --show-current`、`git status --short`、`git diff --stat`; 仅存在 `origin` 时再 `git fetch origin`,然后决定建分支、提交、推送或暂停。
-- 默认不直推 `main/master`; 如果项目文档允许例外, 以项目文档为准。
-- 暂存用 `git add <specific-file>`; 提交用小粒度 Conventional Commits; 不用 `git add .` / `git add -A`.
-- 推送分支后再开 PR; Agent 不代做 merge, 不代做 `git push --force`、`reset --hard`、`restore .`、`checkout .`、`clean -fd`、`--no-verify`.
-- 如果用户问合并 / release / 发布, 说明 GitHub UI 里的下一步并停在需要人类确认的位置。
-- 远端不存在、分叉、冲突、ignore 对不上时先说风险, 不猜测.

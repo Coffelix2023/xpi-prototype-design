@@ -1,0 +1,320 @@
+/**
+ * contracts — 冻结对外契约：阶段枚举、目录布局、CHANGELOG 格式。
+ *
+ * 这里只放纯函数与常量，不做文件系统访问（见 artifacts.ts）。
+ */
+
+/** 两个子命令即两个阶段。闭集，工具入参由此枚举校验，不额外做路径消毒。 */
+export const KINDS = [
+  "wireframe",
+  "hifi",
+] as const;
+export type Kind = (typeof KINDS)[number];
+
+/**
+ * 命令模式闭集。
+ *
+ * 前两项与 KINDS 同构——既是「模式」也是「阶段」；后两项是纯命令模式，
+ * 不对应任何产出目录，因此不进 KINDS。
+ */
+export const MODES = [
+  "wireframe",
+  "hifi",
+  "update",
+  "archive",
+] as const;
+export type Mode = (typeof MODES)[number];
+
+export function isMode(value: unknown): value is Mode {
+  return typeof value === "string" && (MODES as readonly string[]).includes(value);
+}
+
+/**
+ * 项目 slug —— 信任边界。
+ *
+ * `project` 由模型给出，会直接拼进文件系统路径，因此必须按闭集式规则校验：
+ * 小写字母或数字开头结尾，中间可含连字符，总长 1–64。
+ * 这条规则同时排除了 `..`、路径分隔符、前导点与绝对路径。
+ */
+export const PROJECT_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+export function isValidProjectSlug(value: unknown): value is string {
+  return typeof value === "string" && PROJECT_SLUG_PATTERN.test(value);
+}
+
+/** 校验失败即抛错；调用方不得先拼路径再校验。 */
+export function assertProjectSlug(value: unknown): string {
+  if (!isValidProjectSlug(value)) {
+    throw new Error(
+      `Invalid project slug: ${JSON.stringify(value)}. Expected lowercase kebab-case, e.g. subscription-page.`,
+    );
+  }
+  return value;
+}
+
+/** 产物根目录，相对目标项目 cwd。可选前缀 `.pi/` 使其可被 gitignore。 */
+export const ARTIFACT_ROOT = ".pi/prototype-design";
+
+/** 归档区。单层目录，因此 listProjects 天然不会把它当成活跃项目。 */
+export const ARCHIVE_DIR = "archive";
+
+/** 主题文件固定放在项目根，便于人肉查看与用户自行覆写。 */
+export const THEMES_FILE = "THEMES.md";
+
+/** 工作副本目录名；agent 直接改这里，快照按 vN 递增。 */
+export const CURRENT_DIR = "current";
+
+export const VERSION_DIR_PATTERN = /^v(\d+)$/;
+
+/** CHANGELOG 中插入新条目的锚点：新条目永远贴在它下方（倒序）。 */
+export const CHANGELOG_MARKER = "<!-- ENTRIES -->";
+
+export const CHANGELOG_FILE = "CHANGELOG.md";
+
+/** 每个阶段需要保证存在的文档骨架。 */
+export const DOC_FILES = {
+  hifi: [
+    "plan.md",
+    "principles.md",
+    "DELTA.md",
+    CHANGELOG_FILE,
+  ],
+  wireframe: [
+    "plan.md",
+    "principles.md",
+    CHANGELOG_FILE,
+  ],
+} as const satisfies Record<Kind, readonly string[]>;
+
+/** 参数切分与 CHANGELOG 插入用到的正则；提到模块顶层避免重复编译。 */
+const WHITESPACE_PATTERN = /\s+/;
+const LEADING_NEWLINES_PATTERN = /^\n+/;
+
+export type ThemesStatus = "present" | "created";
+
+export interface ArtifactState {
+  /** `current/` 内的文件数；0 表示尚未产出。 */
+  currentFileCount: number;
+  /** 相对项目根的目录，例如 `.pi/prototype-design/subscription-page/wireframe`。 */
+  directory: string;
+  kind: Kind;
+  /** CHANGELOG 顶部最近的条目标题，例如 `2026-09-13 10:22 · v3`。 */
+  latestEntry: string | null;
+  /** 项目 slug。 */
+  project: string;
+  /** 项目根是否已有 THEMES.md。只读状态不做补齐。 */
+  themesPresent: boolean;
+  /** 已存在的版本号，升序。 */
+  versions: number[];
+}
+
+export interface SetupResult {
+  /** 本次新建的文档（已存在的不动）。 */
+  createdDocs: string[];
+  directory: string;
+  kind: Kind;
+  project: string;
+  themesPath: string;
+  themesStatus: ThemesStatus;
+}
+
+export interface SnapshotResult {
+  changelogPath: string;
+  entry: string;
+  kind: Kind;
+  project: string;
+  /** 回滚到上一版的命令；v1 时为 null。 */
+  rollbackCommand: string | null;
+  version: number;
+  versionPath: string;
+}
+
+export function isKind(value: unknown): value is Kind {
+  return typeof value === "string" && (KINDS as readonly string[]).includes(value);
+}
+
+export interface ParsedCommand {
+  mode?: Mode;
+  rest: string;
+}
+
+/** 解析子命令参数；只认第一个 token，剩余部分视为需求描述。 */
+export function parseCommandArgs(args: string): ParsedCommand {
+  const trimmed = args.trim();
+  if (trimmed.length === 0)
+    return {
+      rest: "",
+    };
+  const [head, ...tail] = trimmed.split(WHITESPACE_PATTERN);
+  if (!isMode(head))
+    return {
+      rest: trimmed,
+    };
+  return {
+    mode: head,
+    rest: tail.join(" "),
+  };
+}
+
+/** 面板选项：把一个结构体和它的显示文本绑在一起，避免两者失配。 */
+export interface Choice<T> {
+  item: T;
+  label: string;
+}
+
+export function toChoices<T>(
+  items: readonly T[],
+  label: (item: T) => string,
+): Choice<T>[] {
+  return items.map((item) => ({
+    item,
+    label: label(item),
+  }));
+}
+
+/** 供 `ctx.ui.select(title, labels)` 使用；顺序与 choices 一致。 */
+export function choiceLabels<T>(choices: readonly Choice<T>[]): string[] {
+  return choices.map((choice) => choice.label);
+}
+
+/**
+ * 把 `ctx.ui.select` 回传的文本反查回结构体。
+ *
+ * 用 `indexOf` 在 labels 上定位、再取同下标的 item——**绝不**从文本反解路径：
+ * 标签里含版本号与日期，格式一变就会静默选错项目、动错数据。
+ * 返回 `undefined` 表示用户取消（非 TUI 模式亦返回 undefined）或文本不匹配。
+ */
+export function pickChoice<T>(
+  choices: readonly Choice<T>[],
+  chosen: string | undefined,
+): T | undefined {
+  if (chosen === undefined) return undefined;
+  const index = choiceLabels(choices).indexOf(chosen);
+  return index === -1 ? undefined : choices[index].item;
+}
+
+/** `2026-09-13 10:22`——固定宽度，字典序即时间序，便于倒序阅读。 */
+export function formatStamp(date: Date): string {
+  return date.toISOString().slice(0, 16).replace("T", " ");
+}
+
+export function highestVersion(versions: readonly number[]): number {
+  return versions.length === 0 ? 0 : Math.max(...versions);
+}
+
+export interface ChangelogEntryInput {
+  change: string;
+  files?: readonly string[];
+  kind: Kind;
+  /** 阶段所属项目 slug；拼回滚路径时必须带上它。 */
+  project: string;
+  reason?: string;
+  /** 回滚基准版本；v1 传 null。 */
+  rollbackFrom: number | null;
+  stamp: string;
+  version: number;
+}
+
+export function renderEntryTitle(input: ChangelogEntryInput): string {
+  return `${input.stamp} · v${input.version}`;
+}
+
+/** 渲染一条 CHANGELOG 条目。字段顺序固定，便于人读与 diff。 */
+export function renderChangelogEntry(input: ChangelogEntryInput): string {
+  const lines = [
+    `## ${renderEntryTitle(input)}`,
+    `- 变更：${input.change}`,
+  ];
+  if (input.reason) lines.push(`- 原因：${input.reason}`);
+  if (input.files && input.files.length > 0) {
+    lines.push(`- 文件：${input.files.map((file) => `\`${file}\``).join(", ")}`);
+  }
+  if (input.rollbackFrom !== null) {
+    lines.push(
+      `- 回滚到 v${input.rollbackFrom}：${rollbackCommand(input.project, input.kind, input.rollbackFrom)}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** 单个阶段的回滚命令：把 vN 的内容覆盖回 current/。 */
+export function rollbackCommand(project: string, kind: Kind, version: number): string {
+  const base = `${ARTIFACT_ROOT}/${project}/${kind}`;
+  return `cp -R ${base}/v${version}/. ${base}/${CURRENT_DIR}/`;
+}
+
+/** 阶段目录，相对项目根。回滚、归档、预览都从这里派生。 */
+export function stagePath(project: string, kind: Kind): string {
+  return `${ARTIFACT_ROOT}/${project}/${kind}`;
+}
+
+/**
+ * 归档目录名：`<YYYY-MM-DD>-<project>-<kind>`，日期在前，字典序即时间序。
+ *
+ * 与 `formatStamp` 同用 UTC：同一次操作产出的日志日期与目录日期必须一致，
+ * 否则跨零点会出现日志写 09-13、目录写 09-12 的分裂。
+ */
+export function archiveDirName(project: string, kind: Kind, date: Date): string {
+  return `${date.toISOString().slice(0, 10)}-${project}-${kind}`;
+}
+
+/** 归档目录路径，相对项目根。 */
+export function archivePath(name: string): string {
+  return `${ARTIFACT_ROOT}/${ARCHIVE_DIR}/${name}`;
+}
+
+/** 恢复命令：先补出被清理掉的项目目录，再把归档目录移回原名。 */
+export function archiveRestoreCommand(
+  project: string,
+  kind: Kind,
+  archivePathValue: string,
+): string {
+  return `mkdir -p ${ARTIFACT_ROOT}/${project} && mv ${archivePathValue} ${stagePath(project, kind)}`;
+}
+
+export interface ArchiveEntryInput {
+  /** 归档目录，相对项目根。 */
+  archiveDir: string;
+  kind: Kind;
+  project: string;
+  stamp: string;
+  versions: readonly number[];
+}
+
+/** 归档日志条目。与 CHANGELOG 条目同构，因而复用同一套插入逻辑。 */
+export function renderArchiveEntry(input: ArchiveEntryInput): string {
+  const versions =
+    input.versions.length === 0 ? "无" : input.versions.map((v) => `v${v}`).join(" ");
+  return [
+    `## ${input.stamp} · ${input.project} / ${input.kind}`,
+    `- 版本：${versions}`,
+    `- 原路径：${stagePath(input.project, input.kind)}`,
+    `- 归档到：${input.archiveDir}`,
+    `- 恢复：${archiveRestoreCommand(input.project, input.kind, input.archiveDir)}`,
+  ].join("\n");
+}
+
+/**
+ * 把新条目插到 marker 正下方（即最上方）。
+ * 文件缺少 marker 时追加到末尾，读不出内容时不报错、由调用方兜底。
+ */
+export function insertChangelogEntry(existing: string, entry: string): string {
+  if (!existing.includes(CHANGELOG_MARKER)) {
+    const base = existing.trimEnd();
+    return base.length === 0 ? `${entry}\n` : `${base}\n\n${entry}\n`;
+  }
+  const markerIndex = existing.indexOf(CHANGELOG_MARKER);
+  const head = existing.slice(0, markerIndex + CHANGELOG_MARKER.length);
+  const tail = existing
+    .slice(markerIndex + CHANGELOG_MARKER.length)
+    .replace(LEADING_NEWLINES_PATTERN, "");
+  return `${head}\n\n${entry}\n\n${tail}`.trimEnd().concat("\n");
+}
+
+/** 读取 CHANGELOG 顶部第一条 `## ` 标题，用作状态摘要。 */
+export function latestEntryTitle(changelog: string): string | null {
+  for (const line of changelog.split("\n")) {
+    if (line.startsWith("## ")) return line.slice(3).trim();
+  }
+  return null;
+}

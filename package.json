@@ -5,7 +5,12 @@
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@12.3.4",
+  "files": ["THEMES.md", "skills", "src"],
   "keywords": ["pi-package", "pi-extension"],
+  "pi": {
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills/xpi-prototype-design"]
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
@@ -29,9 +34,6 @@
     "typebox": "^1.0.0",
     "typescript": "^6.0.3",
     "vitest": "^3.0.0"
-  },
-  "pi": {
-    "extensions": ["./src/index.ts"]
   },
   "scripts": {
     "lint": "biome check .",

@@ -2,9 +2,9 @@
 
 [English](./README.md) · **简体中文**
 
-**一个 &lt;把一件事做好&gt; 的 Pi Coding Agent 扩展。** <!-- TODO: 一句话说清本扩展做什么、给谁用、替代或去掉了什么。 -->
+**把设计讨论落成可版本化、可评审的原型产物的 Pi Coding Agent 扩展。**
 
-**A Pi Coding Agent extension that &lt;does one thing well&gt;.** <!-- TODO: 同上,英文一句话说清本扩展做什么、给谁用、替代或去掉了什么。 -->
+**A Pi Coding Agent extension that turns design discussions into versioned, reviewable prototype artifacts.**
 
 <!-- TODO: 补一个 LICENSE 文件(MIT),下面的徽章指向它 -->
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
@@ -15,7 +15,7 @@
 
 ## 为什么
 
-<!-- TODO: 写清本扩展消除的那个具体痛点是哪一个。一段短话比一串功能列表有用。 -->
+设计讨论留在会话里没问题,可一旦对话结束,就没人说得清哪一版才是被拍板的那一版。线框评审通过了,高保真阶段却悄悄漏掉一个 CTA,唯一的记录只剩滚动历史。本扩展把整条回路落在磁盘上、留在项目里、并且版本化:结构化深挖的结论写进 `plan.md`,产出落进 `current/` 工作副本,每轮都存成 `vN/` 快照,并把回滚命令记进唯一一份倒序 `CHANGELOG.md`。主题色来自 `THEMES.md`——由扩展创建一次,此后绝不覆写。
 
 本仓库里的每个扩展都从同样四条规则出发:
 
@@ -61,9 +61,37 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 | 命令 | 说明 |
 | --- | --- |
-| `/xpi-prototype-design` | 显示扩展状态与已加载的版本 |
+| `/xpi-prototype-design` | 显示两个阶段的版本、当前产出数量、CHANGELOG 顶部与 `THEMES.md` 状态 |
+| `/xpi-prototype-design wireframe <需求>` | 建好线框阶段骨架,并展开 `skills/xpi-prototype-design/SKILL.md` |
+| `/xpi-prototype-design hifi <需求>` | 建好高保真阶段骨架,并展开同一份技能文档 |
 
-<!-- TODO: 逐个记录工具与命令,并写清它们的诚实边界:读什么、改什么、拒绝做什么。 -->
+两个阶段都可以用命令的参数补全直接选出来。
+
+### 工具
+
+| 工具 | 读什么 | 改什么 | 拒绝什么 |
+| --- | --- | --- | --- |
+| `prototype_setup` | `<cwd>/.pi/prototype-design/<kind>/`、`<cwd>/THEMES.md` | 补建缺失的目录与文档骨架;`THEMES.md` 缺失时复制包内模板 | 绝不覆写已存在的文档或 `THEMES.md` |
+| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<kind>/current/` | 写出 `v<N>/`,并在 `CHANGELOG.md` 顶部插入一条记录 | `current/` 为空时拒绝执行 |
+| `prototype_status` | 两个阶段 | 不修改任何东西 | 绝不写盘 |
+| `prototype_preview` | `<cwd>/.pi/prototype-design/<kind>/current/` | 用系统默认浏览器打开该文件 | 拒绝任何越出 `current/` 的路径 |
+
+所有路径都由 `ctx.cwd` 推导,任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
+
+### 产物结构
+
+```text
+<cwd>/
+├── THEMES.md                          # shadcn oklch token —— 主题的事实来源
+└── .pi/prototype-design/
+    └── wireframe/                     # 或 hifi/
+        ├── plan.md                    # 需求;每轮深挖后覆写
+        ├── principles.md              # 本阶段的硬约束
+        ├── DELTA.md                   # 仅 hifi:相对线框的结构偏离
+        ├── CHANGELOG.md               # 倒序,最新在最上方
+        ├── current/                   # 工作副本 —— 改这里
+        └── v1/ v2/ ...                # 不可变快照
+```
 
 ## 开发
 
@@ -98,9 +126,16 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
 .
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
+├── THEMES.md                  # 包内 shadcn token 模板,会被复制进目标项目
 ├── docs/                      # Git 工作流与仓库约束
+├── skills/xpi-prototype-design/SKILL.md   # 阶段流程 + 该调用哪些设计技能
 └── src/
-    └── index.ts               # 扩展入口(register 函数)
+    ├── index.ts               # 扩展入口(register)+ 两个子命令
+    ├── contracts.ts           # Kind 枚举、目录布局、CHANGELOG 格式
+    ├── templates.ts           # plan / principles / DELTA / CHANGELOG 骨架
+    ├── artifacts.ts           # 文件系统:setup、snapshot、state、预览目标
+    ├── preview.ts             # 系统默认浏览器启动器
+    └── tools.ts               # 注册的四个工具
 ```
 
 ## 设计规范
