@@ -39,13 +39,8 @@ It also stays inside its lane: an extension is a plugin loaded into the Pi main 
 Requires a working Pi installation. The package is loaded straight from source, so there is nothing to build first.
 
 ```bash
-pi install git:github.com/<owner>/xpi-prototype-design@<ref>
+pi install git:github.com/Coffelix2023/xpi-prototype-design
 ```
-
-| Where | Command |
-| --- | --- |
-| Global (user settings) | `pi install git:github.com/<owner>/xpi-prototype-design@<ref>` |
-| This project only (`.pi/settings.json`) | `pi install -l git:github.com/<owner>/xpi-prototype-design@<ref>` |
 
 `pi install` writes to `~/.pi/agent/settings.json`; `-l` writes to the project settings, which Pi installs automatically once the project is trusted. A pinned git ref is not moved by `pi update`.
 

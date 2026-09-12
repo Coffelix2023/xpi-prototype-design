@@ -39,14 +39,8 @@
 前置条件:一个可用的 Pi 安装。本包直接从源码加载,安装前不需要任何构建。
 
 ```bash
-pi install git:github.com/<owner>/xpi-prototype-design@<ref>
+pi install git:github.com/Coffelix2023/xpi-prototype-design
 ```
-
-| 安装位置 | 命令 |
-| --- | --- |
-| 全局(用户设置) | `pi install git:github.com/<owner>/xpi-prototype-design@<ref>` |
-| 仅当前项目(`.pi/settings.json`) | `pi install -l git:github.com/<owner>/xpi-prototype-design@<ref>` |
-
 `pi install` 写入 `~/.pi/agent/settings.json`;加 `-l` 写入项目设置,项目被信任后 Pi 会自动安装。固定的 git ref 不会被 `pi update` 移动。
 
 ```bash
