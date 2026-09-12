@@ -199,6 +199,10 @@ async function pickStage(
 /**
  * 通知 + kick off。
  *
+ * 需求没写在命令里时（`rest` 为空）不直接发送，而是把 kickoff 预填回输入框，
+ * 让用户补完目标再回车——空发只会让 agent 反问一轮，白烧一次对话。
+ * 无对话框能力的模式（print / json）没法预填，退化成直接发送。
+ *
  * 刻意不在这里建骨架：项目 slug 由 agent 深挖后决定（见 SKILL.md），
  * 命令层只负责选模式与触发，避免猜错项目名后留下空目录。
  */
@@ -208,8 +212,16 @@ function fire(
   target: string,
   rest: string,
 ): void {
+  const prompt = kickoff(target, rest);
+  if (rest === "" && ctx.hasUI) {
+    ctx.ui.notify(
+      `xpi-prototype-design ${VERSION} · ${target} · 已在输入框预填，补充需求后回车`,
+    );
+    ctx.ui.setEditorText(`${prompt} `);
+    return;
+  }
   ctx.ui.notify(`xpi-prototype-design ${VERSION} · ${target}`);
-  pi.sendUserMessage(kickoff(target, rest), {
+  pi.sendUserMessage(prompt, {
     expandPromptTemplates: true,
   });
 }

@@ -64,6 +64,8 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 
 Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all four.
 
+Omit the requirement and the kickoff is prefilled into the editor instead of being sent: you add the goal, then press enter. Only the run modes without an editor (print / json) send straight away.
+
 The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent.
 
 ### Tools
