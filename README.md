@@ -145,7 +145,7 @@ This project adopts the [Google Labs DESIGN.md format](https://github.com/google
 ## Conventions & constraints
 
 - **Glossary** — [`CONTEXT.md`](./CONTEXT.md) defines the repository's unified terminology; terms must not drift in code, docs, or commits.
-- **Git discipline** — read [`docs/GIT-WORKFLOW.md`](./docs/GIT-WORKFLOW.md) and [`docs/GITHUB-GUARD.md`](./docs/GITHUB-GUARD.md) before committing or pushing. Do not push to `main` by default; use small, granular Conventional Commits.
+- **Git discipline** — read [`docs/GIT-WORKFLOW.md`](./docs/GIT-WORKFLOW.md) and [`docs/GITHUB-GUARD.md`](./docs/GITHUB-GUARD.md) before committing or pushing. The default loop commits and pushes **straight to `main`, with no branch**: run the Git hygiene checkpoint (see §3), then write small, granular Conventional Commits. Branches, PRs, and releases happen only when you ask for them.
 - **Token safety** — credentials and secret tokens are never written into code, logs, examples, or documentation.
 - **Agent contract** — [`AGENTS.md`](./AGENTS.md) is the single source of truth for this repository. When an oral agreement, older code, or this README disagrees with it, `AGENTS.md` wins.
 
