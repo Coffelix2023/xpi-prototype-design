@@ -79,7 +79,7 @@ After choosing "Save only", `/xpi-prototype-design execute` returns to that leg 
 
 Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`.
 
-Omit the requirement and a multi-line requirement editor appears (the same `ctx.ui.editor` as Pi's main prompt): what you type rides along with the command, submitting with an empty buffer starts the round with no requirement, and Esc abandons it. Submit and newline follow your own `tui.input.submit` / `tui.input.newLine` keybindings, so rebinding submit to `alt+enter` works here exactly as it does in the main input box. Only the run modes without dialogs (print / json) skip the editor and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens that editor**.
+Omit the requirement and a multi-line requirement dialog appears: what you type rides along with the command, submitting with an empty buffer starts the round with no requirement, and Esc abandons it. Submit and newline follow your own `tui.input.submit` / `tui.input.newLine` keybindings — including `alt+enter` on terminals that cannot send it as a distinct sequence (Zed, Alacritty, Terminal.app), where Pi's built-in extension editor would turn it into a newline instead. Only the run modes without dialogs (print / json) skip the dialog and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens the dialog**. See [`docs/memo-terminal-keybindings.md`](./docs/memo-terminal-keybindings.md) for the whole chain.
 
 The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent; `execute` lists only stages that already have task lines in `tasks.md`.
 
@@ -150,14 +150,15 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── THEMES.md                  # bundled shadcn token template, copied into target projects
-├── docs/                      # Git workflow and repository guardrails
+├── docs/                      # Git workflow, repository guardrails, learning notes
 ├── skills/xpi-prototype-design/SKILL.md   # stage flow + which design skills to call
 └── src/
-    ├── index.ts               # Extension entrypoint (register) + the two subcommands
+    ├── index.ts               # Extension entrypoint (register) + command wiring
     ├── contracts.ts           # Kind enum, directory layout, CHANGELOG format
     ├── templates.ts           # plan / principles / DELTA / CHANGELOG skeletons
     ├── artifacts.ts           # fs: setup, snapshot, state, preview target
     ├── preview.ts             # OS-default-browser launcher
+    ├── requirement-editor.ts  # requirement dialog: submit key wins over newline
     └── tools.ts               # the four registered tools
 ```
 

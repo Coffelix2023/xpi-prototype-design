@@ -14,6 +14,7 @@ import {
   pickChoice,
   toChoices,
 } from "./contracts.js";
+import { promptRequirement, requirementTitle } from "./requirement-editor.js";
 import { registerPrototypeTools } from "./tools.js";
 
 const VERSION = "0.1.0";
@@ -214,11 +215,13 @@ async function pickStage(
  * 通知 + kick off。
  *
  * 需求没写在命令里时（`rest` 为空）不空发消息，先弹一个多行编辑器收需求。
- * 用 `ctx.ui.editor` 而不是 `ctx.ui.input`：后者是单行 `Input`，提交判据写死成
- * `tui.select.confirm` + `"\n"`，既改不动提交键、也没有换行路径；前者把按键转发给
- * pi-tui `Editor`，于是提交与换行走 `tui.input.submit` / `tui.input.newLine`，
- * 与主输入框同一套用户设置。Esc 取消即放弃整轮，留空提交允许——无需求也能起一轮，
- * 只是 agent 会自己深挖。无对话框能力的模式（print / json）弹不出来，退化成直接发送。
+ * 需求框走 `promptRequirement`（见 requirement-editor.ts），不是 `ctx.ui.editor`：
+ * 后者的内部组件把按键原样转发给 pi-tui `Editor`，而那里换行判定排在提交判定之前，
+ * 还把老式终端的 alt+enter（ESC CR）硬编码成换行，于是「提交/换行跟随用户设置」在
+ * 非 kitty 终端（Zed、Alacritty、Terminal.app）上只剩换行、发不出去。我们自己先判提交，
+ * 用的还是 `ctx.ui.custom()` 注入的那份用户 keybindings。
+ * Esc 取消即放弃整轮，留空提交允许——无需求也能起一轮，只是 agent 会自己深挖。
+ * 无对话框能力的模式（print / json）弹不出来，退化成直接发送。
  * `askRequirement=false` 时连编辑器都不弹：execute 续跑的是已经落盘的 tasks.md，
  * 再问一次「需求」只会让人以为要重开一轮。
  *
@@ -234,10 +237,7 @@ async function fire(
 ): Promise<void> {
   let prompt = kickoff(target, rest);
   if (askRequirement && rest === "" && ctx.hasUI) {
-    // editor 没有 placeholder 参数，示例只能并进标题。
-    const entered = await ctx.ui.editor(
-      `${target} · 需求（可留空，可多行）· 例：订阅页，含月付/年付切换与账单历史`,
-    );
+    const entered = await promptRequirement(ctx, requirementTitle(target));
     // 取消：不猜，整轮放弃。
     if (entered === undefined) return;
     prompt = kickoff(target, entered.trim());

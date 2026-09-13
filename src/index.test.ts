@@ -56,7 +56,7 @@ function harness(): Harness {
 let root = "";
 let notify: ReturnType<typeof vi.fn>;
 let select: ReturnType<typeof vi.fn>;
-let editor: ReturnType<typeof vi.fn>;
+let custom: ReturnType<typeof vi.fn>;
 
 function commandContext(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -66,7 +66,7 @@ function commandContext(overrides: Record<string, unknown> = {}): unknown {
     ui: {
       notify,
       select,
-      editor,
+      custom,
     },
     ...overrides,
   };
@@ -77,8 +77,8 @@ beforeEach(async () => {
   notify = vi.fn();
   // 默认模拟非 TUI 模式：select 不可用，永远返回 undefined。
   select = vi.fn().mockResolvedValue(undefined);
-  // 默认模拟用户在需求编辑器里直接提交：留空也算合法输入，照发裸 kickoff。
-  editor = vi.fn().mockResolvedValue("");
+  // 默认模拟用户在需求对话框里直接提交：留空也算合法输入，照发裸 kickoff。
+  custom = vi.fn().mockResolvedValue("");
 });
 
 afterEach(async () => {
@@ -150,7 +150,7 @@ describe("mode dispatch", () => {
 
     // 没有模式面板了：补全列表负责可选项，回车只打印用法。
     expect(select).not.toHaveBeenCalled();
-    expect(editor).not.toHaveBeenCalled();
+    expect(custom).not.toHaveBeenCalled();
     expect(sendUserMessage).not.toHaveBeenCalled();
     const usage = String(notify.mock.calls[0]?.[0]);
     expect(usage).toContain("用法：/xpi-prototype-design <模式>");
@@ -197,13 +197,12 @@ describe("stage invocation", () => {
   });
 
   it("asks for the requirement and sends it when no requirement was typed", async () => {
-    editor.mockResolvedValue("  一个订阅页  ");
+    custom.mockResolvedValue("  一个订阅页  ");
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("wireframe", commandContext());
 
-    // 需求编辑器的标题要能说明当前在配哪个 target，并带上示例。
-    expect(String(editor.mock.calls[0]?.[0])).toContain("wireframe · 需求");
-    expect(String(editor.mock.calls[0]?.[0])).toContain("例：");
+    // 需求对话框被弹过一次；标题文案由 requirementTitle 自己保证（见其单测）。
+    expect(custom).toHaveBeenCalledTimes(1);
     expect(sendUserMessage).toHaveBeenCalledWith(
       "/skill:xpi-prototype-design wireframe 一个订阅页",
       {
@@ -213,7 +212,7 @@ describe("stage invocation", () => {
   });
 
   it("abandons the round when the requirement dialog is cancelled", async () => {
-    editor.mockResolvedValue(undefined);
+    custom.mockResolvedValue(undefined);
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("wireframe", commandContext());
 
@@ -221,7 +220,7 @@ describe("stage invocation", () => {
   });
 
   it("skips the requirement dialog when the run mode has none", async () => {
-    // print / json 没有编辑器，弹不出来也问不到需求，只能照发。
+    // print / json 没有对话框，弹不出来也问不到需求，只能照发。
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler(
       "wireframe",
@@ -231,7 +230,7 @@ describe("stage invocation", () => {
       }),
     );
 
-    expect(editor).not.toHaveBeenCalled();
+    expect(custom).not.toHaveBeenCalled();
     expect(sendUserMessage).toHaveBeenCalledWith(
       "/skill:xpi-prototype-design wireframe",
       {
@@ -249,7 +248,7 @@ describe("stage invocation", () => {
       commands.get("xpi-prototype-design")?.handler("hifi", commandContext()),
     ).resolves.toBeUndefined();
 
-    expect(editor).toHaveBeenCalledTimes(1);
+    expect(custom).toHaveBeenCalledTimes(1);
     expect(sendUserMessage).toHaveBeenCalledTimes(1);
     await expect(stat(join(root, "THEMES.md"))).rejects.toThrow();
   });
@@ -432,7 +431,7 @@ describe("execute branch", () => {
     // 项目名后面直接跟任务进度，用户能看出这个计划还剩几项。
     expect(options[0]).toContain("任务 1/3");
     // execute 续跑的是已落盘的 tasks.md，再弹一次「需求」框只会让人以为要重开一轮。
-    expect(editor).not.toHaveBeenCalled();
+    expect(custom).not.toHaveBeenCalled();
     expect(sendUserMessage).toHaveBeenCalledWith(
       "/skill:xpi-prototype-design execute --project settings-flow --kind hifi",
       {
@@ -452,7 +451,7 @@ describe("execute branch", () => {
       .get("xpi-prototype-design")
       ?.handler("execute 先做首页", commandContext());
 
-    expect(editor).not.toHaveBeenCalled();
+    expect(custom).not.toHaveBeenCalled();
     expect(sendUserMessage).toHaveBeenCalledWith(
       "/skill:xpi-prototype-design execute --project subscription-page --kind wireframe 先做首页",
       {

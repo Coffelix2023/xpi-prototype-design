@@ -80,7 +80,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 `tasks.md` 的任务行是可核对的进度账本：`- [ ] 1.2 空态 (验收:…;产出:…)`、进行中加 `⏳ in_progress`、完成后打勾并紧跟一条验证子行。`prototype_status` 会把同一份进度汇总成 `任务 2/7`。
 
-不写需求时会弹一个多行需求编辑器（与 Pi 主输入框同源的 `ctx.ui.editor`）：填了就随命令一起发出，留空提交等于「无需求」照常启动，Esc 取消则整轮放弃。提交与换行跟随你自己的 `tui.input.submit` / `tui.input.newLine` 按键设置，把提交改成 `alt+enter` 在这里同样生效。只有没有对话框的运行模式（print / json）才会跳过这一步直接发送。`execute` 例外：它续跑已经落盘的计划，**不弹需求编辑器**。
+不写需求时会弹一个多行需求对话框：填了就随命令一起发出，留空提交等于「无需求」照常启动，Esc 取消则整轮放弃。提交与换行跟随你自己的 `tui.input.submit` / `tui.input.newLine`，包括在发不出独立按键序列的终端上把提交设成 `alt+enter`（Zed、Alacritty、Terminal.app）——用 Pi 自带的扩展编辑器时这种配置只会变成换行。只有没有对话框的运行模式（print / json）才会跳过这一步直接发送。`execute` 例外：它续跑已经落盘的计划，**不弹需求对话框**。完整推导见 [`docs/memo-terminal-keybindings.md`](./docs/memo-terminal-keybindings.md)。
 
 命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent；`execute` 只列有 `tasks.md` 任务行的阶段。
 
@@ -151,14 +151,15 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── THEMES.md                  # 包内 shadcn token 模板,会被复制进目标项目
-├── docs/                      # Git 工作流与仓库约束
+├── docs/                      # Git 工作流、仓库约束、学习笔记
 ├── skills/xpi-prototype-design/SKILL.md   # 阶段流程 + 该调用哪些设计技能
 └── src/
-    ├── index.ts               # 扩展入口(register)+ 两个子命令
+    ├── index.ts               # 扩展入口(register)+ 命令接线
     ├── contracts.ts           # Kind 枚举、目录布局、CHANGELOG 格式
     ├── templates.ts           # plan / principles / DELTA / CHANGELOG 骨架
     ├── artifacts.ts           # 文件系统:setup、snapshot、state、预览目标
     ├── preview.ts             # 系统默认浏览器启动器
+    ├── requirement-editor.ts  # 需求对话框:提交键优先于换行判定
     └── tools.ts               # 注册的四个工具
 ```
 
