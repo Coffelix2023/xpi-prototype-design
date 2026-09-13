@@ -61,7 +61,7 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 | `/xpi-prototype-design wireframe <requirement>` | Start a wireframe design |
 | `/xpi-prototype-design hifi [<requirement>]` | Start a hifi design — build on an existing wireframe, or go from scratch |
 | `/xpi-prototype-design execute` | Pick a saved `tasks.md` and continue from its first unfinished task |
-| `/xpi-prototype-design update` | Pick an existing project to revise |
+| `/xpi-prototype-design update` | Pick an existing project to revise — the command layer then asks how big this round is (edit directly / show the change list first) |
 | `/xpi-prototype-design archive` | Pick a finished project to archive |
 Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all six modes and Tab picks one — there is no mode menu, and Enter only prints the usage table.
 
@@ -70,7 +70,7 @@ Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`).
 A prototype is not "answer the questions and start drawing". The order is rigid, and it mirrors `xpi-fast-fix`: **show it in chat, ask, and only then write to disk**.
 
 1. When discovery (3 rounds × 3 questions) ends, the agent shows the full `plan.md` content and the `tasks.md` list in chat — that step sends a message and writes nothing;
-2. It calls `prototype_gate`, and the **extension** — not the model — raises the three-way card and records your choice in `gate.json` at the stage root;
+2. It calls `prototype_gate`, and the **extension** — not the model — raises the card and records your choice in `gate.json` at the stage root: three-way on the first round, two-way on later rounds (start editing now / show me the change list first);
 3. It writes to disk according to that choice:
 
 | Option | Outcome |
@@ -79,14 +79,14 @@ A prototype is not "answer the questions and start drawing". The order is rigid,
 | Save, then execute now | Both files are written, then this round continues into the task list |
 | Something still needs filling in | Nothing is written or produced: the agent asks which part is missing, then asks again |
 
-Until `gate.json` says `execute`, every call that writes under `<stage>/current/` is **blocked outright** by a `tool_call` hook, with the reason handed back to the model. The gate is not "remind the model to ask" — it is an executable door, and that is what separates it from the two earlier prompt-only attempts. When no dialog can be raised (print / json modes), the same record is filled through `ask_user_question` plus a `prototype_gate` call that carries the answer.
+Until `gate.json` holds an `execute` for **this round**, every call that writes under `<stage>/current/` is **blocked outright** by a `tool_call` hook, with the reason handed back to the model. Consent is per round: the record carries the version count at the moment the card was answered, every `prototype_snapshot` expires it, and the next round asks again — the first card approved a plan, which says nothing about how far a later one-line request may expand. The gate is not "remind the model to ask" — it is an executable door, and that is what separates it from the two earlier prompt-only attempts. When no dialog can be raised (print / json modes), the same record is filled through `ask_user_question` plus a `prototype_gate` call that carries the answer.
 After choosing "Save only", `/xpi-prototype-design execute` returns to that leg at any time: the picker lists only stages that **have a task list**, with progress attached (e.g. `subscription-page / wireframe · v1 · 3 files · 任务 2/7`), and the agent resumes from the first unfinished task without re-running discovery or asking for the requirement again.
 
 Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`, plus a gate line (`gate.json`'s answer, or "no snapshot yet, unconfirmed").
 
 Omit the requirement and a multi-line requirement dialog appears: what you type rides along with the command, submitting with an empty buffer starts the round with no requirement, and Esc abandons it. Submit and newline follow your own `tui.input.submit` / `tui.input.newLine` keybindings — including `alt+enter` on terminals that cannot send it as a distinct sequence (Zed, Alacritty, Terminal.app), where Pi's built-in extension editor would turn it into a newline instead. Only the run modes without dialogs (print / json) skip the dialog and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens the dialog**. See [`docs/memo-terminal-keybindings.md`](./docs/memo-terminal-keybindings.md) for the whole chain.
 
-The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent; `execute` lists only stages that already have task lines in `tasks.md`.
+The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent; `execute` lists only stages that already have task lines in `tasks.md`; `update` asks one extra question — how big is this round — after the requirement and **before** the agent starts, writing the answer straight into `gate.json`. That is why "edit directly" costs a single click and zero tokens; modes without a panel (print / json) ask nothing and write nothing, leaving the agent's own gate call as the fallback.
 
 ### Tools
 
@@ -96,9 +96,9 @@ The command never creates directories: the project slug is decided by the agent 
 | `prototype_snapshot` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry | Refuses when `current/` is empty |
 | `prototype_status` | One `(project, kind)`; every live one when `project` is omitted | Nothing | Never writes |
 | `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
-| `prototype_gate` | `gate.json` at the stage root | Raises the three-way card and records the choice; `mode: "resume"` unlocks a stage that answered "save only" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record |
+| `prototype_gate` | `gate.json` at the stage root | Raises the card (three-way on the first round, two-way afterwards) and records both the choice and its baseline; `mode: "resume"` unlocks a stage that answered "save only" / "show me the change list" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record for the current round |
 
-The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets `<stage>/current/**` and that stage has neither a snapshot nor an `execute` answer in `gate.json`, the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
+The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets `<stage>/current/**` and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
 `project` is a trust boundary: it must match `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`, validated twice (tool schema and `artifacts.ts`). Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the model. Tool output is capped at 2000 characters.
 

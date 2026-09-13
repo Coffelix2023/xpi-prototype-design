@@ -61,7 +61,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | `/xpi-prototype-design wireframe <需求>` | 开始线框设计 |
 | `/xpi-prototype-design hifi [<需求>]` | 开始高保真设计 —— 可选基于某个已有线框，或从零开始 |
 | `/xpi-prototype-design execute` | 挑一个已落盘的 `tasks.md`，从第一个未完成任务继续产出 |
-| `/xpi-prototype-design update` | 选一个已有项目进行修改 |
+| `/xpi-prototype-design update` | 选一个已有项目进行修改 —— 命令层会再问一次「本轮改动有多大」（直接改 / 先给改动清单） |
 | `/xpi-prototype-design archive` | 选一个已完成项目归档 |
 
 补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部六个模式，Tab 选中即可。**没有模式菜单**：裸回车只打印用法表。
@@ -71,7 +71,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 原型不是「问完就开做」。顺序是硬的，与 `xpi-fast-fix` 同构：**先在聊天里展示，再问，最后才落盘**。
 
 1. 深挖（3 轮 × 3 问）结束后，agent 在聊天里给出完整的 `plan.md` 内容与 `tasks.md` 任务清单——这一步只发消息，不写任何文件；
-2. 调 `prototype_gate`，由**扩展**（不是模型）弹出三选一卡，并把你的选择写进阶段根的 `gate.json`；
+2. 调 `prototype_gate`，由**扩展**（不是模型）弹卡并把你的选择写进阶段根的 `gate.json`：首轮三选一，迭代轮二选一（现在就开始改 / 先给改动清单）；
 3. 按选择落盘：
 
 | 选项 | 结果 |
@@ -80,14 +80,14 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | 保存后立即执行 | 写完两份文件后接着按任务清单产出 |
 | 还有需要补充的 | 不写盘、不产出，agent 追问缺的那一块，补完再问一次 |
 
-在 `gate.json` 变成 `execute` 之前，任何写入 `<stage>/current/` 的调用都会被 `tool_call` 钩子**直接挡回**并附上原因。闸门不是「提醒模型记得问」，而是一道可执行的门禁——这是它与此前两次只改提示词的差别。卡片弹不出来时（print / json 模式）退化同一条记录：agent 用 `ask_user_question` 问同一张卡，再把答复回填给 `prototype_gate`。
+在 `gate.json` 里出现**本轮**的 `execute` 之前，任何写入 `<stage>/current/` 的调用都会被 `tool_call` 钩子**直接挡回**并附上原因。许可是按轮算的：记录里的 `baseline` 是弹卡那一刻的版本数，你每做一次 `prototype_snapshot`，这份许可就自动过期，下一轮要重新点一次——首轮那张卡批准的是计划，推不出下一句自由文本能展开成多大的改动。闸门不是「提醒模型记得问」，而是一道可执行的门禁——这是它与此前两次只改提示词的差别。卡片弹不出来时（print / json 模式）退化同一条记录：agent 用 `ask_user_question` 问同一张卡，再把答复回填给 `prototype_gate`。
 选择「仅保存」之后，随时可以用 `/xpi-prototype-design execute` 回到这条腿上：候选列表只显示**有计划任务**的阶段，并带上进度（如 `subscription-page / wireframe · v1 · 3 文件 · 任务 2/7`），选中后 agent 从第一个未完成任务接着做，不会重新深挖、也不再问一遍需求。
 
 `tasks.md` 的任务行是可核对的进度账本：`- [ ] 1.2 空态 (验收:…;产出:…)`、进行中加 `⏳ in_progress`、完成后打勾并紧跟一条验证子行。`prototype_status` 会把同一份进度汇总成 `任务 2/7`，并单列一行闸门状态（`gate.json` 的答案，或「还没有版本快照、未确认」）。
 
 不写需求时会弹一个多行需求对话框：填了就随命令一起发出，留空提交等于「无需求」照常启动，Esc 取消则整轮放弃。提交与换行跟随你自己的 `tui.input.submit` / `tui.input.newLine`，包括在发不出独立按键序列的终端上把提交设成 `alt+enter`（Zed、Alacritty、Terminal.app）——用 Pi 自带的扩展编辑器时这种配置只会变成换行。只有没有对话框的运行模式（print / json）才会跳过这一步直接发送。`execute` 例外：它续跑已经落盘的计划，**不弹需求对话框**。完整推导见 [`docs/memo-terminal-keybindings.md`](./docs/memo-terminal-keybindings.md)。
 
-命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent；`execute` 只列有 `tasks.md` 任务行的阶段。
+命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent；`execute` 只列有 `tasks.md` 任务行的阶段；`update` 会在需求之后、把消息交给 agent **之前**多问一次「本轮改动有多大」，直接把答案写进 `gate.json`——所以「直接改」这条路只点一次，且这一刻还没烧掉任何 token。无面板的模式（print / json）不问也不写，由 agent 调 `prototype_gate` 兜底。
 
 ### 工具
 
@@ -97,9 +97,9 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | `prototype_snapshot` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | 写出 `v<N>/`，并在 `CHANGELOG.md` 顶部插入一条记录 | `current/` 为空时拒绝执行 |
 | `prototype_status` | 某个 `(project, kind)`；省略 `project` 时汇总全部活跃项 | 不修改任何东西 | 绝不写盘 |
 | `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | 用系统默认浏览器打开该文件 | 拒绝任何越出 `current/` 的路径 |
-| `prototype_gate` | 阶段根的 `gate.json` | 弹三选一卡并记录选择；`mode: "resume"` 放行「仅保存」之后的续跑 | 有面板时忽略模型传入的 `answer`；没有 `save` 记录时拒绝 resume |
+| `prototype_gate` | 阶段根的 `gate.json` | 弹卡（首轮三选一 / 迭代轮二选一）并记录选择与 `baseline`；`mode: "resume"` 放行「仅保存 / 先给改动清单」之后的续跑 | 有面板时忽略模型传入的 `answer`；没有本轮的 `save` 记录时拒绝 resume |
 
-写盘门禁在 `gate.ts` 里注册一个 `tool_call` 钩子：`write` / `edit` 目标是 `<stage>/current/**`，且该阶段既无版本快照、`gate.json` 又不是 `execute` 时直接 block，并把原因回灌给模型。`plan.md` / `tasks.md` 这些台账不在门禁范围——它们的真实内容正好要在用户确认之后才写（`prototype_setup` 只放空骨架）。
+写盘门禁在 `gate.ts` 里注册一个 `tool_call` 钩子：`write` / `edit` 目标是 `<stage>/current/**`，且 `gate.json` 里没有**本轮**的 `execute`（答案不是 `execute`，或 `baseline` 与当前版本数不一致）时直接 block，并把原因回灌给模型。`plan.md` / `tasks.md` 这些台账不在门禁范围——它们的真实内容正好要在用户确认之后才写（`prototype_setup` 只放空骨架）。
 `project` 是信任边界：必须匹配 `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`，两层校验（工具 schema 与 `artifacts.ts`）。所有路径都由 `ctx.cwd` 推导，任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
 
 ### 产物结构

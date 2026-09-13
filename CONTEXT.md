@@ -30,9 +30,11 @@
 | 任务清单 (tasks.md) | 阶段内的任务与进度账本，一行一个任务，checkbox 即状态。 | 执行腿唯一的事实来源；`parseTaskProgress` 只数方框，不解析正文 |
 | 任务进度 (task progress) | `完成数 / 总数`，由 `tasks.md` 的 checkbox 数出。 | `prototype_status` 显示为 `任务 2/7`；null 表示计划还没落盘 |
 | 跳过 (skipped) | 任务行保留但行尾标 `⏭ skipped: <原因>`。 | 仍算未完成，不许删行——删行等于伪造完成 |
-| 计划闸门 (plan gate) | 首次产出前的一次三选一确认：仅保存计划，稍后执行（默认首选）/ 保存后立即执行 / 还有需要补充的。 | 见 `SKILL.md` §5.1；卡由 `prototype_gate` 弹出，顺序是「先展示、再问、最后落盘」 |
+| 计划闸门 (plan gate) | 写 `current/` 之前的一次确认，按**轮**生效。首轮（阶段还没有 `vN`）三选一：仅保存计划，稍后执行（默认首选）/ 保存后立即执行 / 还有需要补充的；迭代轮二选一：现在就开始改 / 先给改动清单，等我确认。 | 见 `SKILL.md` §5.1；卡由 `prototype_gate` 弹出，顺序是「先展示、再问、最后落盘」。`update` 轮命令层已经问过一次（见「范围声明」），agent 不必重复弹卡 |
 | 闸门答案 (gate answer) | `gate.json` 里的 `save` / `execute` / `more`，由用户在卡上选定。 | 闭集见 `GATE_ANSWERS`；只有 `execute` 放行 `current/`
-| 闸门记录 (gate record) | 阶段根的 `gate.json`：用户的选择 + 采集时间。 | 由 `prototype_gate` 写；`tool_call` 门禁读它，`prototype_status` 显示它 |
+| 闸门记录 (gate record) | 阶段根的 `gate.json`：用户的选择 + 采集时间 + 本轮基线。 | 由 `prototype_gate` 写；`update` 命令层的范围声明写的是同一份记录。`tool_call` 门禁读它，`prototype_status` 显示它 |
+| 范围声明 (scope declaration) | `update` 命令在需求之后弹的那一次选择：直接改（`--scope quick`，落 `execute`）/ 先给改动清单（`--scope plan`，落 `save`）。 | 发生在 agent 启动**之前**，因此不烧 token；无面板的模式（print / json）不问也不写，改由 agent 调闸门兜底 |
+| 本轮基线 (baseline) | `gate.json` 里的 `baseline`：弹卡那一刻的版本数。 | 与当前版本数一致时许可才算本轮的；每做一次 `prototype_snapshot` 旧许可自动过期 |
 
 ## 避免用词 (Banned Synonyms)
 

@@ -19,7 +19,7 @@ license: MIT
 | `wireframe` | `[需求]` | 你 |
 | `hifi` | `[--based-on <project>] [需求]` | 你 |
 | `execute` | `--project <slug> --kind <wireframe\|hifi> [备注]` | 你 |
-| `update` | `--project <slug> --kind <wireframe\|hifi> [需求]` | 你 |
+| `update` | `--project <slug> --kind <wireframe\|hifi> [--scope quick\|plan] [需求]` | 你 |
 | `archive` | 无 | **命令层直接执行，不经过你** |
 
 命令层的职责边界（不要越界重做）：
@@ -28,11 +28,14 @@ license: MIT
 - 它**不读产物状态**。要知道现状，自己调 `prototype_status`。
 - `archive` 是纯文件操作（`rename` 到 `archive/` + 写归档日志），命令层做完即结束，**不会**给你发消息。所以正常情况下你不会收到 `archive`。
 - `execute` **只列出有计划任务的阶段**（`tasks.md` 里已有任务行），也**不弹需求框**：它续跑已落盘的 `tasks.md`，不是重开一轮。没有可执行计划的阶段不会出现在候选里。
+- `update` **在需求之后、把消息交给你之前**多问一次「本轮改动有多大」，并把答案直接写进 `gate.json`：`--scope quick` 对应放行（`execute`），`--scope plan` 对应只给清单（`save`）。所以收到 `--scope quick` 时 `current/` 已经放行，**不要再弹闸门卡**；收到 `--scope plan` 时**不要写 `current/`**，先出改动清单等用户发话。无面板的模式（`json` / `print`）不会问也不会写记录——那正是 §5.1 闸门兜底的场景。
 - `help` 与裸回车只打印用法表，命令层做完即结束，**不会**给你发消息。可选项由输入框补全列表给出，没有「选模式」面板。
 
 ## 2. 硬规则（先读，别跳过）
 
-1. **首次产出前必须过计划闸门**：先在聊天里展示结论 → 调 `prototype_gate` 让用户三选一 → 只有拿到「保存后立即执行」（或用户明确说「开始执行」后的 `mode: "resume"`）才能写 `current/`。**未经放行写 `<stage>/current/` 会被 `tool_call` 钩子直接 block**；`plan.md` / `tasks.md` 的**真实内容**也只在用户确认之后才写（`prototype_setup` 只会放不含任务行的空骨架）。被挡住时不要争辩、不要换路径绕，先补调 `prototype_gate`。详见 §5.1。
+1. **写 `current/` 前必须有一份「本轮」的放行记录**：先在聊天里展示结论 → 调 `prototype_gate` 让用户点一次 → 只有拿到放行答案才能写 `current/`。**没有本轮的放行记录就写 `<stage>/current/`，会被 `tool_call` 钩子直接 block**；`plan.md` / `tasks.md` 的**真实内容**也只在用户确认之后才写（`prototype_setup` 只会放不含任务行的空骨架）。被挡住时不要争辩、不要换路径绕，先补调 `prototype_gate`。详见 §5.1。
+
+   这条规则对 `wireframe` / `hifi` / `update` 一视同仁，原因是许可只覆盖**一轮**：首轮那张卡批准的是「这个计划可以产出」，它推不出「下一句自由文本可以展开成多大的改动」。凡是你准备改 `current/`，先确认本轮的记录在不在。收到 §1 里说的 `--scope quick` 就是命令层替你问过了，不必重复弹卡。
 2. **产物只落在** `<cwd>/.pi/prototype-design/<project>/<kind>/`。工作副本永远是 `current/`，你直接改它。
 3. **每轮产出后必须调 `prototype_snapshot`**，否则版本链断裂、无法回滚。
 4. **每个阶段各一份 `plan.md` 与 `tasks.md`**，每轮深挖后一起覆写，不新建副本。`plan.md` 只写需求事实，任务清单与进度只写在 `tasks.md`。
@@ -71,7 +74,11 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 
 若 `prototype_status` 显示已有版本，先读 `current/` 与 `CHANGELOG.md` 顶部几条，再决定是**迭代**（§9）还是**新开一号**。
 
-**`update` 模式**：项目与阶段已经在参数里给定了，跳过 slug 决策，直接从 §4 的 `prototype_status --project <P> --kind <K>` 开始，读完现状后只改用户指出的部分。
+**`update` 模式**：项目与阶段已经在参数里给定了，跳过 slug 决策，直接从 §4 的 `prototype_status --project <P> --kind <K>` 开始，读完现状后只改用户指出的部分。命令层已经替你问过「本轮改动有多大」，并按 `--scope` 给了放行状态：
+
+- `--scope quick`（用户选「直接改」）：`current/` 已放行。**不要**再弹闸门卡、**不要**先写计划，读完现状就动手，改完照 §8 快照。
+- `--scope plan`（用户选「先给改动清单」）：`current/` 仍被挡着。先写 `plan.md` / `tasks.md`，在聊天里给出**改动清单与影响面**（要改哪些块、哪些文件、边界在哪），然后停手。用户说「开始执行」时用 `prototype_gate { project, kind, mode: "resume" }` 放行。
+- 没有 `--scope`（命令层弹不出面板）：按 §5.1 走，自己调 `prototype_gate` 让用户点一次。
 
 **`execute` 模式**：同理，直接读该阶段的 `plan.md` 与 `tasks.md`，进 §5.2 执行腿——**不重新深挖**。
 
@@ -122,9 +129,11 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 
 提问纪律：
 
-- 卡面三个选项由 `prototype_gate` 给出，不许另起一张卡、不许合并、不许省掉「仅保存计划，稍后执行」——那是用户在产出之前唯一的刹车。
+- 卡的选项由 `prototype_gate` 给出，不许另起一张卡、不许合并、不许省掉「仅保存计划，稍后执行」——那是用户在产出之前唯一的刹车。
+- 命令层已经问过 `--scope` 时**不要**再弹一次同样的卡：那是同一个问题问两遍。
 - **用户没选「保存后立即执行」就写 `current/`，等于跳过了整个闸门**；而且写不进去。被挡回时按提示补调闸门，别把文件挪到别的路径。
-- 闸门只对**首次产出**（`wireframe` / `hifi`）出现。`update` 走 §9 迭代（阶段已有 `vN`，写 `current/` 不再被挡），`execute` 走 §5.2 执行腿。
+- 卡面分两种：首轮（阶段还没有 `vN`）三选一；**迭代轮**（已有 `vN`）二选一——「现在就开始改」/「先给改动清单，等我确认」。两张卡的语义都是「批准**本轮**」，所以别把首轮的答复当成后续每一轮的通行证。
+- 许可带基线：`gate.json` 里的 `baseline` 是弹卡那一刻的版本数。你每做一次 `prototype_snapshot`，这份许可就自动过期，下一轮要用户重新点一次。写 `current/` 被挡下且理由是「许可已过期」时，说明**这一轮**还没确认过，补调闸门，别去改 `gate.json`。
 - 用户在「仅保存」之后说「开始执行 / 继续」时，改用 `prototype_gate { project, kind, mode: "resume" }` 放行。没有 `save` 记录时 resume 会被拒绝——那正说明闸门还没过，别绕过它。
 
 ### 5.2 执行腿
@@ -269,7 +278,7 @@ prototype_preview { project, kind, file: "screens/01-home.html" }
 
 ## 9. 迭代与回滚
 
-- **迭代**（`update` 模式走这条）：直接改 `current/`，改完 `prototype_snapshot`，在 `plan.md` 里同步更新受影响的章节；受影响的 `tasks.md` 条目一并更新。闸门只管首次产出，迭代不再问、也不再被钩子挡。
+- **迭代**（`update` 模式走这条）：先确认本轮放行记录在（`--scope quick` 已带，或自己调过一次闸门）→ 直接改 `current/` → 改完 `prototype_snapshot`，在 `plan.md` 里同步更新受影响的章节；受影响的 `tasks.md` 条目一并更新。快照本身会把这一轮的许可作废，所以下一轮会重新问一次——那是设计，不是 bug。
 - **回滚**：跑快照返回的 `cp -R .../v(N-1)/. .../current/` 命令，然后再快照一次记录这次回滚。
 - 版本号只增不减；不要在 `v*/` 目录里就地改文件——那些是不可变历史。
 
@@ -293,7 +302,7 @@ prototype_preview { project, kind, file: "screens/01-home.html" }
 - [ ] 项目 slug 已告知用户，且与同项目另一阶段一致
 - [ ] `plan.md` 反映了最新的 9 个（或提前退出时的实际）回答
 - [ ] `tasks.md` 的任务行自带 `(验收:…)` 与 `(产出:…)`，编号顺序即产出顺序
-- [ ] 首次产出前过了 §5.1 计划闸门：`prototype_gate` 有记录，且值为 `execute`；没有记录或选了「仅保存」时，`current/` 确实一个字都没写
+- [ ] 写 `current/` 前有**本轮**的 `gate.json` 记录（`answer: "execute"` 且 `baseline` 等于当前版本数，或来自 `--scope quick`）；没有记录就一个字都没写
 - [ ] 执行腿里每完成一项就立刻勾选并写验证子行，没有批量补勾
 - [ ] 跳过或重排的任务在 `tasks.md` 里如实留痕，没有为了凑完成而删行
 - [ ] 无硬编码色值；所有颜色可在 `THEMES.md` 找到出处
