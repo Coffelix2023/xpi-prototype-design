@@ -33,8 +33,10 @@ import {
   type GateAnswer,
   type GateState,
   gateLabel,
+  ITERATION_CHOICES,
   isKind,
   isValidProjectSlug,
+  iterationGateLabel,
   type Kind,
 } from "./contracts.js";
 import { kindSchema, projectSchema } from "./tools.js";
@@ -47,22 +49,45 @@ const AFTER_ANSWER: Record<GateAnswer, string> = {
   save: "用户选择「仅保存」：写 plan.md 与 tasks.md（`current/` 仍禁止写入），然后本轮到此结束，明确告诉用户「等你发话再产出」。",
 };
 
+/** 迭代轮的下一步。字段与首轮同一套，只是「保存」的含义变成「先给改动清单」。 */
+const ITERATION_AFTER_ANSWER: Record<GateAnswer, string> = {
+  execute:
+    "用户选择「现在就开始改」：本轮 current/ 已放行，直接改用户指出的部分，改完照 SKILL.md §8 快照。",
+  more: "迭代轮不该出现「还有需要补充的」；按「先给改动清单」处理。",
+  save: '用户选择「先给改动清单」：先写 plan.md 与 tasks.md（current/ 仍禁止写入），并在聊天里给出改动清单与影响面，然后停手——用户说「开始执行」时再用 mode: "resume" 放行。',
+};
+
+function afterAnswer(answer: GateAnswer, iteration: boolean): string {
+  return iteration ? ITERATION_AFTER_ANSWER[answer] : AFTER_ANSWER[answer];
+}
 /** 卡面文本。抽出来是为了让提示词与面板说同一句话。 */
 export function gateTitle(project: string, kind: Kind): string {
   return `xpi-prototype-design：${project} / ${kind} 的计划已就绪，要现在产出吗`;
 }
 
+/** 迭代轮的卡面：问的不再是「要不要产出」，而是「这一轮的范围确认了吗」。 */
+export function iterationGateTitle(project: string, kind: Kind): string {
+  return `xpi-prototype-design：${project} / ${kind} 已有产出，本轮改动要现在开始吗`;
+}
+
 /**
  * 是否挡下这次 `current/` 写入。
  *
- * 只挡**首次**产出：阶段一旦有过快照，说明用户早就放行过，之后的 update 与迭代
- * 不该再被同一道门挡第二次。
+ * 许可是**一轮**的，不是一个阶段的。`baseline` 是弹卡那一刻的版本数，只有它与当前
+ * 版本数一致，这份 `execute` 才算本轮的。阶段每多一次快照，旧的许可自动过期。
+ *
+ * 为什么不能沿用「阶段有过快照就永久放行」：首轮那张卡问的是「要不要现在产出这个
+ * 计划」，它批准的是**计划**，推不出「这一句话可以展开成多大的改动」。首次深挖有
+ * 3×3 问卷兜住范围，`update` 轮没有问卷，只能从一句自由文本反推——那正是需要
+ * 在写 `current/` 之前拦一次的地方。
  */
 export function gateBlocksWrite(state: {
   gate: GateState | null;
   versions: readonly number[];
 }): boolean {
-  return state.versions.length === 0 && state.gate?.answer !== "execute";
+  const gate = state.gate;
+  if (gate?.answer !== "execute") return true;
+  return gate.baseline !== state.versions.length;
 }
 
 const ARTIFACT_ROOT_PARTS = ARTIFACT_ROOT.split("/");
@@ -110,22 +135,34 @@ function writtenPath(event: ToolCallEvent): string | null {
   return null;
 }
 
-function blockReason(project: string, kind: Kind, gate: GateState | null): string {
-  const seen = gate
-    ? `用户上次的选择是「${gateLabel(gate.answer)}」`
-    : "还没有用户的闸门答复";
+function blockReason(
+  project: string,
+  kind: Kind,
+  gate: GateState | null,
+  versions: readonly number[],
+): string {
+  let seen: string;
+  if (gate === null) seen = "还没有任何闸门答复";
+  else if (gate.answer !== "execute")
+    seen = `用户上次的选择是「${gateLabel(gate.answer)}」`;
+  else
+    seen = `上一份放行记录属于 v${gate.baseline}，当前已是 v${versions.length}，许可已过期`;
   return [
-    `⛔ 计划闸门未通过：${project}/${kind} 尚无版本快照，${seen}。`,
-    `先调 prototype_gate({ project: "${project}", kind: "${kind}" }) 让用户做三选一确认。`,
-    '只有「保存后立即执行」才放行 current/；用户已在聊天里说「开始执行」时用 mode: "resume"。',
+    `⛔ 计划闸门未通过：${project}/${kind} 缺一份**本轮**的放行记录（${seen}）。`,
+    `先调 prototype_gate({ project: "${project}", kind: "${kind}" }) 让用户点一次确认。`,
+    '放行条件是「现在就改 / 保存后立即执行」；用户已在聊天里说「开始执行」时用 mode: "resume"。',
   ].join(" ");
 }
 
 /** 无对话框模式（print / json）下的回退文案：卡弹不出来，但答案仍要走同一条记录。 */
-function noUiText(project: string, kind: Kind): string {
+function noUiText(project: string, kind: Kind, iteration: boolean): string {
+  const title = iteration
+    ? iterationGateTitle(project, kind)
+    : gateTitle(project, kind);
+  const choices = iteration ? ITERATION_CHOICES : GATE_CHOICES;
   return [
     `当前模式没有可用的选择面板，闸门卡弹不出来。`,
-    `请用 ask_user_question 发同一张卡（标题「${gateTitle(project, kind)}」，三个选项：${GATE_CHOICES.map((choice) => choice.label).join(" / ")}），`,
+    `请用 ask_user_question 发同一张卡（标题「${title}」，选项：${choices.map((choice) => choice.label).join(" / ")}），`,
     `拿到答复后再调 prototype_gate({ project: "${project}", kind: "${kind}", answer: "<选项>" }) 记录。`,
     "在记录为 execute 之前，不要写 current/。",
   ].join("\n");
@@ -138,34 +175,41 @@ async function askGate(
   fallbackAnswer: GateAnswer | undefined,
 ): Promise<string> {
   const state = await readArtifactState(ctx.cwd, project, kind);
-  if (state.versions.length > 0) {
-    return `${project}/${kind} 已有版本快照，闸门只对首次产出生效，直接进执行腿。`;
-  }
+  const iteration = state.versions.length > 0;
+  const choices = iteration ? ITERATION_CHOICES : GATE_CHOICES;
+  const title = iteration
+    ? iterationGateTitle(project, kind)
+    : gateTitle(project, kind);
 
   // 无面板模式：面板弹不出来，只能把同一张卡交给 ask_user_question，再回收答案。
   if (!ctx.hasUI) {
-    if (fallbackAnswer === undefined) return noUiText(project, kind);
+    const usable =
+      fallbackAnswer !== undefined &&
+      choices.some((choice) => choice.answer === fallbackAnswer);
+    if (!usable) return noUiText(project, kind, iteration);
     await writeGateState(ctx.cwd, project, kind, fallbackAnswer);
-    return `${gateLabel(fallbackAnswer)}（已记录 → gate.json）\n${AFTER_ANSWER[fallbackAnswer]}`;
+    return `${gateLabel(fallbackAnswer)}（已记录 → gate.json）\n${afterAnswer(fallbackAnswer, iteration)}`;
   }
 
   // 有面板时只认用户在面板里的选择；模型传进来的 answer 不采信，否则闸门可以自答。
   const chosen = await ctx.ui.select(
-    gateTitle(project, kind),
-    GATE_CHOICES.map((choice) => choice.label),
+    title,
+    choices.map((choice) => choice.label),
   );
-  const picked = GATE_CHOICES.find((choice) => choice.label === chosen);
+  const picked = choices.find((choice) => choice.label === chosen);
   if (picked === undefined) {
     return "用户取消了闸门卡：停在这里。不要写 current/，也不要开始写 plan.md / tasks.md，等用户发话。";
   }
   const written = await writeGateState(ctx.cwd, project, kind, picked.answer);
-  return `${picked.label}（已记录 → gate.json，${written.at}）\n${AFTER_ANSWER[picked.answer]}`;
+  const label = iteration ? iterationGateLabel(picked.answer) : picked.label;
+  return `${label}（已记录 → gate.json，${written.at}，本轮基线 v${written.baseline}）\n${afterAnswer(picked.answer, iteration)}`;
 }
 
 /**
  * 续跑：用户在聊天里明确说了「开始执行 / 继续」。
  *
- * 只在已有 `save` 记录时放行——没确认过的阶段不许用 resume 跳过闸门。
+ * 只在已有**本轮** `save` 记录时放行：没确认过的阶段不许用 resume 跳过闸门，
+ * 上一轮遗留的 save 也不算数（baseline 对不上就说明中间又产出过一版）。
  */
 async function resumeGate(
   ctx: ExtensionContext,
@@ -173,11 +217,11 @@ async function resumeGate(
   kind: Kind,
 ): Promise<string> {
   const state = await readArtifactState(ctx.cwd, project, kind);
-  if (state.versions.length > 0) {
-    return `${project}/${kind} 已有版本快照，闸门只对首次产出生效，直接进执行腿。`;
-  }
   if (state.gate?.answer !== "save") {
-    return `没有可续跑的「仅保存」记录：当前 gate.json 为 ${state.gate ? `「${gateLabel(state.gate.answer)}」` : "缺失"}。先调 prototype_gate 让用户确认，再续跑。`;
+    return `没有可续跑的「先给改动清单 / 仅保存」记录：当前 gate.json 为 ${state.gate ? `「${gateLabel(state.gate.answer)}」` : "缺失"}。先调 prototype_gate 让用户确认，再续跑。`;
+  }
+  if (state.gate.baseline !== state.versions.length) {
+    return `上一份记录属于 v${state.gate.baseline}，当前已是 v${state.versions.length}：本轮的范围还没确认过。先调 prototype_gate 让用户点一次，再续跑。`;
   }
   await writeGateState(ctx.cwd, project, kind, "execute");
   return `已按用户的续跑指令放行 ${project}/${kind} 的 current/：从 tasks.md 第一个未完成任务接着做，不重新深挖。`;
@@ -186,7 +230,7 @@ async function resumeGate(
 export function registerPrototypeGate(pi: ExtensionAPI): void {
   pi.registerTool({
     description:
-      "首次产出前的计划闸门：由扩展自己弹三选一卡（仅保存 / 保存后立即执行 / 还有需要补充的），把用户的选择写进 <stage>/gate.json。用户没选「保存后立即执行」之前，任何写入 <stage>/current/ 的调用都会被 tool_call 钩子硬阻断。mode=resume 用于用户在聊天里明确说「开始执行」之后的续跑；无对话框模式（print / json）用 answer 回填用户答复。",
+      "计划闸门：由扩展自己弹卡采集**用户**的答复，写进 <stage>/gate.json，许可只对「本轮」有效。首轮（阶段还没有 vN）弹三选一：仅保存 / 保存后立即执行 / 还有需要补充的；迭代轮（已有 vN）弹二选一：现在就开始改 / 先给改动清单。没有本轮的 execute 记录之前，任何写入 <stage>/current/ 的调用都会被 tool_call 钩子硬阻断。mode=resume 用于用户在聊天里明确说「开始执行」之后的续跑；无对话框模式（print / json）用 answer 回填用户答复。",
     label: "计划闸门确认",
     name: "prototype_gate",
     parameters: Type.Object({
@@ -219,7 +263,7 @@ export function registerPrototypeGate(pi: ExtensionAPI): void {
       project: projectSchema,
     }),
     promptSnippet:
-      "Ask the user to approve first production (plan gate) and record the answer.",
+      "Ask the user to approve this round's scope (plan gate) and record the answer.",
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
       const text =
         params.mode === "resume"
@@ -250,7 +294,7 @@ export function registerPrototypeGate(pi: ExtensionAPI): void {
     if (!gateBlocksWrite(state)) return undefined;
     return {
       block: true,
-      reason: blockReason(stage.project, stage.kind, state.gate),
+      reason: blockReason(stage.project, stage.kind, state.gate, state.versions),
     };
   });
 }

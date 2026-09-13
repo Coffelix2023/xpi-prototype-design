@@ -16,6 +16,7 @@ import {
   latestEntryTitle,
   MODES,
   parseCommandArgs,
+  parseGateState,
   parseTaskProgress,
   pickChoice,
   renderArchiveEntry,
@@ -412,5 +413,65 @@ describe("stage predicates", () => {
         },
       }),
     ).toBe(true);
+  });
+});
+
+describe("parseGateState", () => {
+  it("读不到 baseline 的老记录回落 0：升级后已产出过的阶段要重新确认一次", () => {
+    // 升级前写的 gate.json 只有 answer/at。
+    const legacy = parseGateState(
+      JSON.stringify({
+        answer: "execute",
+        at: "2026-09-13 10:22",
+      }),
+    );
+    expect(legacy).toEqual({
+      answer: "execute",
+      at: "2026-09-13 10:22",
+      baseline: 0,
+    });
+    // baseline 乱填也回落 0，不让它蒙混过 gateBlocksWrite 的比较。
+    expect(
+      parseGateState(
+        JSON.stringify({
+          answer: "execute",
+          at: "",
+          baseline: -3,
+        }),
+      )?.baseline,
+    ).toBe(0);
+    expect(
+      parseGateState(
+        JSON.stringify({
+          answer: "execute",
+          at: "",
+          baseline: 1.5,
+        }),
+      )?.baseline,
+    ).toBe(0);
+  });
+
+  it("正常记录读回 baseline，损坏的仍然一律 null", () => {
+    expect(
+      parseGateState(
+        JSON.stringify({
+          answer: "save",
+          at: "x",
+          baseline: 4,
+        }),
+      ),
+    ).toEqual({
+      answer: "save",
+      at: "x",
+      baseline: 4,
+    });
+    expect(parseGateState("{")).toBeNull();
+    expect(
+      parseGateState(
+        JSON.stringify({
+          answer: "maybe",
+        }),
+      ),
+    ).toBeNull();
   });
 });

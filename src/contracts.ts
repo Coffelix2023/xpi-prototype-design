@@ -104,6 +104,13 @@ export interface GateState {
   answer: GateAnswer;
   /** 采集时间，`formatStamp` 的固定宽度格式。 */
   at: string;
+  /**
+   * 弹卡那一刻的版本数。许可是**一轮**的，不是一个阶段的：
+   * 阶段每多一次快照，这份记录就自动过期，下一轮要用户重新点一次。
+   *
+   * 由 `writeGateState` 自己量，调用方没有机会写错。
+   */
+  baseline: number;
 }
 
 /**
@@ -115,11 +122,17 @@ export function parseGateState(raw: string): GateState | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
-    const { answer, at } = parsed as Record<string, unknown>;
+    const { answer, at, baseline } = parsed as Record<string, unknown>;
     if (!isGateAnswer(answer)) return null;
     return {
       answer,
       at: typeof at === "string" ? at : "",
+      // fail-closed：老记录（升级前写的）读不到 baseline，回落 0，于是只对
+      // 「还没有任何快照」的阶段有效；已产出过的阶段会被要求重新确认一次。
+      baseline:
+        typeof baseline === "number" && Number.isInteger(baseline) && baseline >= 0
+          ? baseline
+          : 0,
     };
   } catch {
     return null;
@@ -153,6 +166,65 @@ export const GATE_CHOICES = [
 export function gateLabel(answer: GateAnswer): string {
   return GATE_CHOICES.find((choice) => choice.answer === answer)?.label ?? answer;
 }
+
+/**
+ * 迭代轮的卡面。
+ *
+ * 闸门不再只对首次产出出现：阶段已有 vN 时，用户仍要为**本轮的改动范围**点一次头。
+ * 首轮那张卡问的是「要不要现在产出这个计划」，它批准的是计划，推不出这一轮的范围，
+ * 所以迭代轮把选项收敛成「现在就改 / 先给改动清单」两格。
+ */
+export const ITERATION_CHOICES = [
+  {
+    answer: "execute",
+    label: "现在就开始改",
+  },
+  {
+    answer: "save",
+    label: "先给改动清单，等我确认",
+  },
+] as const satisfies readonly {
+  answer: GateAnswer;
+  label: string;
+}[];
+
+export function iterationGateLabel(answer: GateAnswer): string {
+  return (
+    ITERATION_CHOICES.find((choice) => choice.answer === answer)?.label ??
+    gateLabel(answer)
+  );
+}
+
+/**
+ * 迭代轮的范围声明（命令层面板）。
+ *
+ * `quick` 落 `execute`：用户已经在没花 token 之前就说了「直接改」。
+ * `plan` 落 `save`：先出改动清单，`current/` 继续挡着，等用户说「开始执行」再 `resume`。
+ *
+ * 答案由面板采集后写进 `gate.json`，与 `prototype_gate` 走同一条记录——
+ * 于是快路径只点一次，绕过命令层直接聊天时仍有闸门兜底。
+ */
+export type UpdateScope = "quick" | "plan";
+
+export const UPDATE_SCOPE_TITLE = "xpi-prototype-design：本轮改动有多大";
+
+export const UPDATE_SCOPE_CHOICES = [
+  {
+    answer: "execute",
+    label: "直接改（小改动，不用先出计划）",
+    scope: "quick",
+  },
+  {
+    answer: "save",
+    label: "先给改动清单，等我确认（大改动）",
+    scope: "plan",
+  },
+] as const satisfies readonly {
+  answer: GateAnswer;
+  label: string;
+  scope: UpdateScope;
+}[];
+
 /** 每个阶段需要保证存在的文档骨架。 */
 export const DOC_FILES = {
   hifi: [

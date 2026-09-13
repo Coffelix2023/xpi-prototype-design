@@ -255,8 +255,10 @@ export async function readGateState(
 /**
  * 落盘**用户**的选择。
  *
- * 调用方只有 `prototype_gate`：答案必须来自扩展自己弹的那张卡（或用户在聊天里
- * 明确发话后的 resume），不是模型自述。
+ * 调用方有两处，答案都来自用户点的面板：`prototype_gate` 的卡，和 `update` 命令的
+ * 范围声明——不是模型自述。
+ *
+ * `baseline` 由这里自己量：许可属于「弹卡那一刻的那一轮」，让调用方传就有写错的机会。
  */
 export async function writeGateState(
   projectRoot: string,
@@ -264,9 +266,11 @@ export async function writeGateState(
   kind: Kind,
   answer: GateAnswer,
 ): Promise<GateState> {
+  const { versions } = await readArtifactState(projectRoot, project, kind);
   const state: GateState = {
     answer,
     at: formatStamp(new Date()),
+    baseline: versions.length,
   };
   await writeFile(
     gatePath(projectRoot, project, kind),

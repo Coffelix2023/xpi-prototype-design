@@ -16,7 +16,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupArtifacts, writeGateState } from "./artifacts.js";
-import { GATE_CHOICES } from "./contracts.js";
+import { GATE_CHOICES, type GateAnswer, ITERATION_CHOICES } from "./contracts.js";
 import { gateBlocksWrite, registerPrototypeGate, stageOfCurrentPath } from "./gate.js";
 
 type Hook = (
@@ -121,7 +121,13 @@ afterEach(async () => {
 });
 
 describe("gateBlocksWrite", () => {
-  it("blocks every answer except execute, and only while the stage has no snapshot", () => {
+  const record = (answer: GateAnswer, baseline: number) => ({
+    answer,
+    at: "2026-09-13 10:22",
+    baseline,
+  });
+
+  it("blocks every answer except execute", () => {
     expect(
       gateBlocksWrite({
         gate: null,
@@ -134,35 +140,66 @@ describe("gateBlocksWrite", () => {
     ] as const) {
       expect(
         gateBlocksWrite({
+          gate: record(answer, 0),
           versions: [],
-          gate: {
-            answer,
-            at: "2026-09-13 10:22",
-          },
         }),
       ).toBe(true);
     }
     expect(
       gateBlocksWrite({
+        gate: record("execute", 0),
         versions: [],
-        gate: {
-          answer: "execute",
-          at: "2026-09-13 10:22",
-        },
       }),
     ).toBe(false);
-    // 已产出过的阶段不该被同一道门挡第二次。
+  });
+
+  it("只在许可覆盖本轮基线时放行", () => {
+    // 阶段已有 v1，但许可是在还没有任何快照时给的：属于上一轮，必须重新确认。
     expect(
       gateBlocksWrite({
-        gate: {
-          answer: "save",
-          at: "2026-09-13 10:22",
-        },
+        gate: record("execute", 0),
+        versions: [
+          1,
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      gateBlocksWrite({
+        gate: record("execute", 1),
         versions: [
           1,
         ],
       }),
     ).toBe(false);
+    // 又多了一次快照，旧的放行立刻过期。
+    expect(
+      gateBlocksWrite({
+        gate: record("execute", 1),
+        versions: [
+          1,
+          2,
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      gateBlocksWrite({
+        gate: record("execute", 2),
+        versions: [
+          1,
+          2,
+        ],
+      }),
+    ).toBe(false);
+    // save 永远不放行，基线对不对都一样。
+    expect(
+      gateBlocksWrite({
+        gate: record("save", 2),
+        versions: [
+          1,
+          2,
+        ],
+      }),
+    ).toBe(true);
   });
 });
 
@@ -228,6 +265,44 @@ describe("prototype_gate", () => {
     expect(JSON.parse(await gateFile()).answer).toBe("execute");
   });
 
+  it("阶段已有 vN 时改问迭代卡，并把基线一起记下来", async () => {
+    await mkdir(join(root, ".pi/prototype-design/subscription-page/hifi/v1"), {
+      recursive: true,
+    });
+    const select = vi.fn().mockResolvedValue(ITERATION_CHOICES[1].label);
+    const text = await call(
+      {
+        kind: "hifi",
+        project: "subscription-page",
+      },
+      ctx(true, select),
+    );
+    // 迭代轮只有两格：现在改 / 先给改动清单，不能再出「还有需要补充的」。
+    expect(select.mock.calls[0]?.[1]).toEqual(
+      ITERATION_CHOICES.map((choice) => choice.label),
+    );
+    expect(text).toContain(ITERATION_CHOICES[1].label);
+    const written = JSON.parse(await gateFile());
+    expect(written.answer).toBe("save");
+    expect(written.baseline).toBe(1);
+  });
+
+  it("无面板时把迭代卡交给 ask_user_question，而不是直接放行", async () => {
+    await mkdir(join(root, ".pi/prototype-design/subscription-page/hifi/v1"), {
+      recursive: true,
+    });
+    const text = await call(
+      {
+        kind: "hifi",
+        project: "subscription-page",
+      },
+      ctx(false),
+    );
+    expect(text).toContain("ask_user_question");
+    expect(text).toContain(ITERATION_CHOICES[1].label);
+    await expect(gateFile()).rejects.toThrow();
+  });
+
   it("writes nothing when the user cancels the card", async () => {
     const text = await call(
       {
@@ -263,6 +338,24 @@ describe("prototype_gate", () => {
     expect(resumed).toContain("放行");
     expect(JSON.parse(await gateFile()).answer).toBe("execute");
   });
+
+  it("拒绝续跑上一轮遗留的 save：基线对不上就说明中间又产出过一版", async () => {
+    // 记录是在还没有任何快照时留的。
+    await writeGateState(root, "subscription-page", "hifi", "save");
+    await mkdir(join(root, ".pi/prototype-design/subscription-page/hifi/v1"), {
+      recursive: true,
+    });
+    const refused = await call(
+      {
+        kind: "hifi",
+        mode: "resume",
+        project: "subscription-page",
+      },
+      ctx(true),
+    );
+    expect(refused).toContain("本轮的范围还没确认过");
+    expect(JSON.parse(await gateFile()).answer).toBe("save");
+  });
 });
 
 describe("tool_call hook", () => {
@@ -290,6 +383,22 @@ describe("tool_call hook", () => {
     expect(await hook(writeEvent(target), ctx(true))).toBeUndefined();
   });
 
+  it("快照一出来，上一轮的放行就过期：同一道门要为新一轮再拦一次", async () => {
+    const { hook } = harness();
+    const target = join(
+      root,
+      ".pi/prototype-design/subscription-page/hifi/current/index.html",
+    );
+    await writeGateState(root, "subscription-page", "hifi", "execute");
+    expect(await hook(writeEvent(target), ctx(true))).toBeUndefined();
+
+    await mkdir(join(root, ".pi/prototype-design/subscription-page/hifi/v1"), {
+      recursive: true,
+    });
+    const blocked = await hook(writeEvent(target), ctx(true));
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.reason).toContain("许可已过期");
+  });
   it("leaves the stage ledger and everything outside current/ alone", async () => {
     const { hook } = harness();
     const base = join(root, ".pi/prototype-design/subscription-page/hifi");
