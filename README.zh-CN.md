@@ -41,6 +41,7 @@
 ```bash
 pi install git:github.com/Coffelix2023/xpi-prototype-design
 ```
+
 `pi install` 写入 `~/.pi/agent/settings.json`;加 `-l` 写入项目设置,项目被信任后 Pi 会自动安装。固定的 git ref 不会被 `pi update` 移动。
 
 ```bash
@@ -78,7 +79,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 `tasks.md` 的任务行是可核对的进度账本：`- [ ] 1.2 空态 (验收:…;产出:…)`、进行中加 `⏳ in_progress`、完成后打勾并紧跟一条验证子行。`prototype_status` 会把同一份进度汇总成 `任务 2/7`。
 
-不写需求时会弹一个单行需求框（与 `/xpi-research` 的目标输入框同款）：填了就随命令一起发出，留空回车等于「无需求」照常启动，Esc 取消则整轮放弃。只有没有输入框的运行模式（print / json）才会跳过这一步直接发送。`execute` 例外：它续跑已经落盘的计划，**不弹需求框**。
+不写需求时会弹一个多行需求编辑器（与 Pi 主输入框同源的 `ctx.ui.editor`）：填了就随命令一起发出，留空提交等于「无需求」照常启动，Esc 取消则整轮放弃。提交与换行跟随你自己的 `tui.input.submit` / `tui.input.newLine` 按键设置，把提交改成 `alt+enter` 在这里同样生效。只有没有对话框的运行模式（print / json）才会跳过这一步直接发送。`execute` 例外：它续跑已经落盘的计划，**不弹需求编辑器**。
 
 命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent；`execute` 只列有 `tasks.md` 任务行的阶段。
 

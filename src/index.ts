@@ -216,11 +216,13 @@ async function pickStage(
 /**
  * 通知 + kick off。
  *
- * 需求没写在命令里时（`rest` 为空）不空发消息，先弹一个输入框收需求，
- * 与 xpi-research 的 `ctx.ui.input` 同款：单行足够，Esc 取消即放弃整轮。
- * 输入框留空是允许的——无需求也能起一轮，只是 agent 会自己深挖。
- * 无对话框能力的模式（print / json）弹不出来，退化成直接发送。
- * `askRequirement=false` 时连输入框都不弹：execute 续跑的是已经落盘的 tasks.md，
+ * 需求没写在命令里时（`rest` 为空）不空发消息，先弹一个多行编辑器收需求。
+ * 用 `ctx.ui.editor` 而不是 `ctx.ui.input`：后者是单行 `Input`，提交判据写死成
+ * `tui.select.confirm` + `"\n"`，既改不动提交键、也没有换行路径；前者把按键转发给
+ * pi-tui `Editor`，于是提交与换行走 `tui.input.submit` / `tui.input.newLine`，
+ * 与主输入框同一套用户设置。Esc 取消即放弃整轮，留空提交允许——无需求也能起一轮，
+ * 只是 agent 会自己深挖。无对话框能力的模式（print / json）弹不出来，退化成直接发送。
+ * `askRequirement=false` 时连编辑器都不弹：execute 续跑的是已经落盘的 tasks.md，
  * 再问一次「需求」只会让人以为要重开一轮。
  *
  * 刻意不在这里建骨架：项目 slug 由 agent 深挖后决定（见 SKILL.md），
@@ -235,9 +237,9 @@ async function fire(
 ): Promise<void> {
   let prompt = kickoff(target, rest);
   if (askRequirement && rest === "" && ctx.hasUI) {
-    const entered = await ctx.ui.input(
-      `${target} · 需求（可留空）`,
-      "例如：订阅页，含月付/年付切换与账单历史",
+    // editor 没有 placeholder 参数，示例只能并进标题。
+    const entered = await ctx.ui.editor(
+      `${target} · 需求（可留空，可多行）· 例：订阅页，含月付/年付切换与账单历史`,
     );
     // 取消：不猜，整轮放弃。
     if (entered === undefined) return;

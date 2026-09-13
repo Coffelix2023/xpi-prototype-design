@@ -79,7 +79,7 @@ After choosing "Save only", `/xpi-prototype-design execute` returns to that leg 
 
 Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`.
 
-Omit the requirement and a single-line requirement dialog appears (the same `ctx.ui.input` style as `/xpi-research`): what you type rides along with the command, an empty submit starts the round with no requirement, and Esc abandons it. Only the run modes without an editor (print / json) skip the dialog and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens that dialog**.
+Omit the requirement and a multi-line requirement editor appears (the same `ctx.ui.editor` as Pi's main prompt): what you type rides along with the command, submitting with an empty buffer starts the round with no requirement, and Esc abandons it. Submit and newline follow your own `tui.input.submit` / `tui.input.newLine` keybindings, so rebinding submit to `alt+enter` works here exactly as it does in the main input box. Only the run modes without dialogs (print / json) skip the editor and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens that editor**.
 
 The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent; `execute` lists only stages that already have task lines in `tasks.md`.
 
