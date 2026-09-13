@@ -16,7 +16,8 @@ export type Kind = (typeof KINDS)[number];
  *
  * 前三项与 KINDS 有关联：wireframe / hifi 既是「模式」也是「阶段」，
  * execute 是执行腿的入口（读已落盘的 tasks.md 续跑），不对应新目录；
- * 后两项 update / archive 是纯命令模式，同样不进 KINDS。
+ * 后三项 update / archive / help 是纯命令模式，同样不进 KINDS；
+ * help 只打印用法，不碰文件系统、也不唤起 agent。
  */
 export const MODES = [
   "wireframe",
@@ -24,6 +25,7 @@ export const MODES = [
   "execute",
   "update",
   "archive",
+  "help",
 ] as const;
 export type Mode = (typeof MODES)[number];
 

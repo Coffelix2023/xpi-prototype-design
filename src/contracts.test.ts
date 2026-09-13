@@ -26,7 +26,7 @@ import {
 import { docTemplate } from "./templates.js";
 
 describe("MODES", () => {
-  it("declares exactly the five command modes", () => {
+  it("declares exactly the six command modes", () => {
     expect([
       ...MODES,
     ]).toEqual([
@@ -35,6 +35,7 @@ describe("MODES", () => {
       "execute",
       "update",
       "archive",
+      "help",
     ]);
   });
 
@@ -46,6 +47,7 @@ describe("MODES", () => {
     expect(isMode("execute")).toBe(true);
     expect(isMode("update")).toBe(true);
     expect(isMode("archive")).toBe(true);
+    expect(isMode("help")).toBe(true);
     expect(isMode("Upload")).toBe(false);
     expect(isMode("")).toBe(false);
     expect(isMode(undefined)).toBe(false);

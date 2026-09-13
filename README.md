@@ -56,14 +56,14 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 
 | Command | Description |
 | --- | --- |
-| `/xpi-prototype-design` | List the five modes and pick one |
+| `/xpi-prototype-design <mode>` | Run a mode; with no mode it prints the usage table |
+| `/xpi-prototype-design help` | Print the usage table (same output as a bare command) |
 | `/xpi-prototype-design wireframe <requirement>` | Start a wireframe design |
 | `/xpi-prototype-design hifi [<requirement>]` | Start a hifi design — build on an existing wireframe, or go from scratch |
 | `/xpi-prototype-design execute` | Pick a saved `tasks.md` and continue from its first unfinished task |
 | `/xpi-prototype-design update` | Pick an existing project to revise |
 | `/xpi-prototype-design archive` | Pick a finished project to archive |
-
-Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all five.
+Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all six modes and Tab picks one — there is no mode menu, and Enter only prints the usage table.
 
 ### Progressive by design: a planning leg and an execution leg
 

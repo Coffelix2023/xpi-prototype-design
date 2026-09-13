@@ -19,17 +19,17 @@ import { registerPrototypeTools } from "./tools.js";
 const VERSION = "0.1.0";
 
 /**
- * 参数补全：四个模式，用 pi-tui 的 fuzzyFilter。
+ * 参数补全：六个模式，用 pi-tui 的 fuzzyFilter。
  *
  * 与宿主内置命令（`/model`、`/thinking`、`/login`）同一个匹配器，
  * 因此首字母与子序列都能命中。
  *
- * prefix 为空时返回 null：`/xpi-prototype-design` 后面刚敲下空格的那一刻不弹列表，
- * 选项改由回车触发 handler 里的 `ctx.ui.select` 面板给出（见 promptForMode）。
+ * 空 prefix（只有命令名，或命令名加空格）返回全表：敲完
+ * `/xpi-prototype-design ` 就列出可选子命令，Tab 选、回车发，
+ * 不再有「回车弹面板」这一层。fuzzyFilter 对空串原样返回入参，
+ * 所以这里不必特判。
  */
 function completions(prefix: string): AutocompleteItem[] | null {
-  // 空 prefix 覆盖两种情形：只有命令名，或命令名加空格。都不弹。
-  if (prefix.trim() === "") return null;
   const items: AutocompleteItem[] = MODES.map((mode) => ({
     label: mode,
     value: mode,
@@ -76,6 +76,10 @@ const MODE_CHOICES = toChoices(
       description: "归档已完成的原型设计项目",
       mode: "archive",
     },
+    {
+      description: "打印用法与全部模式的说明",
+      mode: "help",
+    },
   ] as {
     description: string;
     mode: Mode;
@@ -91,20 +95,13 @@ function usageText(): string {
 }
 
 /**
- * 无模式时列出四个模式让用户挑。
+ * 无模式（或显式 `help`）时打印用法。
  *
- * `ctx.ui.select` 在非 TUI 模式（RPC / print）与用户取消时都返回 `undefined`。
- * 前者不能抛错，因此两种情况统一回退到用法提示。
+ * 这里不再弹 `ctx.ui.select` 选模式：可选项改由输入框补全列表给出（见 completions），
+ * 回车即执行。输出走 `notify`，在 TUI / RPC 与无对话框模式（print / json）下都一样。
  */
-async function promptForMode(ctx: ExtensionCommandContext): Promise<Mode | undefined> {
-  const chosen = await ctx.ui.select(
-    "xpi-prototype-design：选择模式",
-    choiceLabels(MODE_CHOICES),
-  );
-  const picked = pickChoice(MODE_CHOICES, chosen);
-  if (picked) return picked.mode;
+function printUsage(ctx: ExtensionCommandContext): void {
   ctx.ui.notify(usageText());
-  return undefined;
 }
 
 /** hifi 的双入口：继承某个已完成的线框，或从零开始。 */
@@ -259,8 +256,13 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
     getArgumentCompletions: completions,
     handler: async (args, ctx) => {
       const parsed = parseCommandArgs(args);
-      const mode = parsed.mode ?? (await promptForMode(ctx));
-      if (!mode) return;
+      // 不写子命令等于 help：没有面板可弹，也不该静默什么都不做。
+      const mode = parsed.mode ?? "help";
+
+      if (mode === "help") {
+        printUsage(ctx);
+        return;
+      }
 
       if (mode === "wireframe") {
         await fire(pi, ctx, "wireframe", parsed.rest);
@@ -334,8 +336,8 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
         return;
       }
 
-      // 五个模式都已接线；给 Mode 加成员时这里会先出现未覆盖分支。
-      ctx.ui.notify(usageText());
+      // 六个模式都已接线；给 Mode 加成员时这里会先出现未覆盖分支。
+      printUsage(ctx);
     },
   });
 }

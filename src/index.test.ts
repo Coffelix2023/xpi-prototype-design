@@ -89,7 +89,7 @@ afterEach(async () => {
 });
 
 describe("extension registration", () => {
-  it("exposes one command with the five modes plus four tools", () => {
+  it("exposes one command with the six modes plus four tools", () => {
     const { commands, tools } = harness();
     const command = commands.get("xpi-prototype-design");
     expect(command).toBeDefined();
@@ -99,9 +99,16 @@ describe("extension registration", () => {
       "prototype_snapshot",
       "prototype_status",
     ]);
-    // 空 prefix 不补全：敲完命令再按空格不该弹出模式列表，回车走 select 面板。
-    expect(command?.getArgumentCompletions?.("")).toBeNull();
-    expect(command?.getArgumentCompletions?.("   ")).toBeNull();
+    // 空 prefix 也补全：敲完命令加空格就列出全部子命令，Tab 选、回车发。
+    const all = [
+      ...MODES,
+    ];
+    expect(command?.getArgumentCompletions?.("")?.map((item) => item.value)).toEqual(
+      all,
+    );
+    expect(command?.getArgumentCompletions?.("   ")?.map((item) => item.value)).toEqual(
+      all,
+    );
     expect(
       command?.getArgumentCompletions?.("hifi")?.map((item) => item.value),
     ).toEqual([
@@ -127,39 +134,36 @@ describe("extension registration", () => {
     expect(complete?.("ar")?.map((item) => item.value)).toEqual([
       "archive",
     ]);
+    // `l` 只命中 help：其余模式都没有 l。
+    expect(complete?.("l")?.map((item) => item.value)).toEqual([
+      "help",
+    ]);
     // 无命中时返回 null，补全层据此不渲染列表。
     expect(complete?.("zzz")).toBeNull();
   });
 });
 
-describe("mode picker", () => {
-  it("offers all five modes when none was typed, and acts on the pick", async () => {
-    select.mockResolvedValue("hifi — 创建高保真原型设计（可选基于已有线框）");
+describe("mode dispatch", () => {
+  it("prints usage and opens nothing when no mode was typed", async () => {
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("", commandContext());
 
-    const options = select.mock.calls[0]?.[1] as string[];
-    expect(options).toHaveLength(MODES.length);
-    expect(options).toHaveLength(5);
-    for (const mode of MODES)
-      expect(options.some((o) => o.startsWith(mode))).toBe(true);
-    // 没写需求时先弹需求编辑器，而不是空发消息。
-    expect(editor).toHaveBeenCalledTimes(1);
-    expect(sendUserMessage).toHaveBeenCalledWith("/skill:xpi-prototype-design hifi", {
-      expandPromptTemplates: true,
-    });
-  });
-
-  it("falls back to the usage notice when the picker is unavailable", async () => {
-    // 非 TUI 模式（RPC / print）与用户取消都走这条路径。
-    select.mockResolvedValue(undefined);
-    const { commands, sendUserMessage } = harness();
-    await commands.get("xpi-prototype-design")?.handler("", commandContext());
-
+    // 没有模式面板了：补全列表负责可选项，回车只打印用法。
+    expect(select).not.toHaveBeenCalled();
+    expect(editor).not.toHaveBeenCalled();
     expect(sendUserMessage).not.toHaveBeenCalled();
     const usage = String(notify.mock.calls[0]?.[0]);
     expect(usage).toContain("用法：/xpi-prototype-design <模式>");
     for (const mode of MODES) expect(usage).toContain(mode);
+  });
+
+  it("treats an explicit help as the same usage notice", async () => {
+    const { commands, sendUserMessage } = harness();
+    await commands.get("xpi-prototype-design")?.handler("help", commandContext());
+
+    expect(select).not.toHaveBeenCalled();
+    expect(sendUserMessage).not.toHaveBeenCalled();
+    for (const mode of MODES) expect(String(notify.mock.calls[0]?.[0])).toContain(mode);
   });
 
   it("acts on a typed mode without opening the mode picker", async () => {

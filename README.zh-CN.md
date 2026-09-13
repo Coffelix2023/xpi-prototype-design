@@ -56,14 +56,15 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 | 命令 | 说明 |
 | --- | --- |
-| `/xpi-prototype-design` | 列出五个模式并选一个 |
+| `/xpi-prototype-design <模式>` | 执行某个模式；不写模式则打印用法表 |
+| `/xpi-prototype-design help` | 打印用法表（与裸回车同款输出） |
 | `/xpi-prototype-design wireframe <需求>` | 开始线框设计 |
 | `/xpi-prototype-design hifi [<需求>]` | 开始高保真设计 —— 可选基于某个已有线框，或从零开始 |
 | `/xpi-prototype-design execute` | 挑一个已落盘的 `tasks.md`，从第一个未完成任务继续产出 |
 | `/xpi-prototype-design update` | 选一个已有项目进行修改 |
 | `/xpi-prototype-design archive` | 选一个已完成项目归档 |
 
-补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部五项。
+补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部六个模式，Tab 选中即可。**没有模式菜单**：裸回车只打印用法表。
 
 ### 渐进式：规划腿与执行腿
 
