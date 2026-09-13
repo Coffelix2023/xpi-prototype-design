@@ -3,9 +3,15 @@ import type {
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, fuzzyFilter } from "@earendil-works/pi-tui";
-import { archiveProject, listProjects, type ProjectStage } from "./artifacts.js";
+import {
+  archiveProject,
+  listProjects,
+  type ProjectStage,
+  writeGateState,
+} from "./artifacts.js";
 import {
   choiceLabels,
+  type GateAnswer,
   hasOutput,
   hasPlan,
   MODES,
@@ -13,6 +19,9 @@ import {
   parseCommandArgs,
   pickChoice,
   toChoices,
+  UPDATE_SCOPE_CHOICES,
+  UPDATE_SCOPE_TITLE,
+  type UpdateScope,
 } from "./contracts.js";
 import { registerPrototypeGate } from "./gate.js";
 import { promptRequirement, requirementTitle } from "./requirement-editor.js";
@@ -112,7 +121,12 @@ interface HifiEntry {
   label: string;
   project?: string;
 }
-
+/** 迭代轮范围声明的选项；`scope` 只进 kickoff，`answer` 才是落盘的值。 */
+interface UpdateScopeChoice {
+  answer: GateAnswer;
+  label: string;
+  scope: UpdateScope;
+}
 /**
  * 选 hifi 的基础。返回 `null` 表示用户取消。
  *
@@ -165,6 +179,27 @@ async function chooseHifiEntry(
   if (picked) return picked;
   // 用户取消：不猜，直接放弃。
   return null;
+}
+
+/**
+ * 迭代轮的范围声明（命令层面板）。返回 `null` 表示用户取消。
+ *
+ * 为什么放在命令层：这一步发生在 agent 启动**之前**，用户还没花掉任何 token。
+ * 选中即写进 `gate.json`——与 `prototype_gate` 走同一条记录，于是
+ * 「直接改」这条路只点一次；绕过命令层直接在聊天里提需求时，仍有闸门兜底。
+ */
+async function chooseUpdateScope(
+  ctx: ExtensionCommandContext,
+): Promise<UpdateScopeChoice | null> {
+  const choices = toChoices<UpdateScopeChoice>(
+    [
+      ...UPDATE_SCOPE_CHOICES,
+    ],
+    (item) => item.label,
+  );
+  const chosen = await ctx.ui.select(UPDATE_SCOPE_TITLE, choiceLabels(choices));
+  // 取消：不猜，整轮放弃。
+  return pickChoice(choices, chosen) ?? null;
 }
 
 /** 阶段选项文本。execute / update / archive 共用同一份列表，避免多处格式漂移。 */
@@ -229,6 +264,54 @@ async function pickStage(
  * 刻意不在这里建骨架：项目 slug 由 agent 深挖后决定（见 SKILL.md），
  * 命令层只负责选模式与触发，避免猜错项目名后留下空目录。
  */
+/**
+ * 需求框：命令里没写需求时（`rest` 为空）弹一个多行编辑器。
+ *
+ * 返回 `null` 表示用户取消了需求框——整轮放弃，调用方不要写任何记录。
+ * 其余情况返回要带进 kickoff 的需求文本（可能是空串）。
+ *
+ * 需求框走 `promptRequirement`（见 requirement-editor.ts），不是 `ctx.ui.editor`：
+ * 后者的内部组件把按键原样转发给 pi-tui `Editor`，而那里换行判定排在提交判定之前，
+ * 还把老式终端的 alt+enter（ESC CR）硬编码成换行，于是「提交/换行跟随用户设置」在
+ * 非 kitty 终端（Zed、Alacritty、Terminal.app）上只剩换行、发不出去。我们自己先判提交，
+ * 用的还是 `ctx.ui.custom()` 注入的那份用户 keybindings。
+ *
+ * 留空提交允许——无需求也能起一轮，只是 agent 会自己深挖。无对话框能力的模式
+ * （print / json）弹不出来，退化成原样带回 `rest`。
+ * `ask=false` 时连编辑器都不弹：execute 续跑的是已经落盘的 tasks.md，
+ * 再问一次「需求」只会让人以为要重开一轮。
+ */
+async function resolveRequirement(
+  ctx: ExtensionCommandContext,
+  target: string,
+  rest: string,
+  ask: boolean,
+): Promise<string | null> {
+  if (rest !== "" || !ask || !ctx.hasUI) return rest;
+  const entered = await promptRequirement(ctx, requirementTitle(target));
+  // 取消：不猜，整轮放弃。
+  return entered === undefined ? null : entered.trim();
+}
+
+/** 通知 + 发送。抽出来是为了让 update 能在需求框之后、发送之前插入范围声明。 */
+function deliver(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  target: string,
+  requirement: string,
+): void {
+  ctx.ui.notify(`xpi-prototype-design ${VERSION} · ${target}`);
+  pi.sendUserMessage(kickoff(target, requirement), {
+    expandPromptTemplates: true,
+  });
+}
+
+/**
+ * 单行 kickoff 的常规入口：收需求 → 发送。
+ *
+ * 刻意不在这里建骨架：项目 slug 由 agent 深挖后决定（见 SKILL.md），
+ * 命令层只负责选模式与触发，避免猜错项目名后留下空目录。
+ */
 async function fire(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
@@ -236,17 +319,9 @@ async function fire(
   rest: string,
   askRequirement = true,
 ): Promise<void> {
-  let prompt = kickoff(target, rest);
-  if (askRequirement && rest === "" && ctx.hasUI) {
-    const entered = await promptRequirement(ctx, requirementTitle(target));
-    // 取消：不猜，整轮放弃。
-    if (entered === undefined) return;
-    prompt = kickoff(target, entered.trim());
-  }
-  ctx.ui.notify(`xpi-prototype-design ${VERSION} · ${target}`);
-  pi.sendUserMessage(prompt, {
-    expandPromptTemplates: true,
-  });
+  const requirement = await resolveRequirement(ctx, target, rest, askRequirement);
+  if (requirement === null) return;
+  deliver(pi, ctx, target, requirement);
 }
 
 export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
@@ -306,12 +381,25 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
           title: "xpi-prototype-design：要修改哪个项目",
         });
         if (!stage) return;
-        await fire(
-          pi,
-          ctx,
-          `update --project ${stage.project} --kind ${stage.kind}`,
-          parsed.rest,
-        );
+        const base = `update --project ${stage.project} --kind ${stage.kind}`;
+
+        // 需求先问：用户刚描述完改什么，再判断这一轮有多大，判断才有依据。
+        const requirement = await resolveRequirement(ctx, base, parsed.rest, true);
+        // 需求框被取消：什么都没发生，也不留任何记录。
+        if (requirement === null) return;
+
+        // 迭代轮的范围声明落在命令层：此刻还没花掉任何 token。答案由面板采集后
+        // 直接写进 gate.json（与 prototype_gate 同一条记录），于是「直接改」只点一次；
+        // 无面板的模式（json / print）不问也不写，交给 agent 那边的闸门回退文案。
+        let scope: UpdateScopeChoice | null = null;
+        if (ctx.hasUI) {
+          scope = await chooseUpdateScope(ctx);
+          if (!scope) return;
+          await writeGateState(ctx.cwd, stage.project, stage.kind, scope.answer);
+        }
+
+        const target = `${base}${scope ? ` --scope ${scope.scope}` : ""}`;
+        deliver(pi, ctx, target, requirement);
         return;
       }
 

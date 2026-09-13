@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -6,7 +6,7 @@ import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupArtifacts } from "./artifacts.js";
-import { MODES } from "./contracts.js";
+import { MODES, UPDATE_SCOPE_CHOICES } from "./contracts.js";
 import register from "./index.js";
 
 interface RegisteredCommand {
@@ -367,12 +367,40 @@ describe("hifi dual entry", () => {
 });
 
 describe("update branch", () => {
+  /** 面板会问两次：先挑项目，再声明本轮范围。按标题分流，避免两次调用互相顶掉。 */
+  function answerPanels(stage: string, scopeLabel: string | undefined): void {
+    select.mockImplementation(async (title: unknown, options: unknown) => {
+      const list = options as string[];
+      if (String(title).includes("要修改哪个项目")) {
+        return list.find((option) => option.startsWith(stage));
+      }
+      return scopeLabel;
+    });
+  }
+
+  async function gateRecord(
+    project: string,
+    kind: string,
+  ): Promise<{
+    answer: string;
+    baseline: number;
+  } | null> {
+    try {
+      return JSON.parse(
+        await readFile(
+          join(root, ".pi/prototype-design", project, kind, "gate.json"),
+          "utf8",
+        ),
+      );
+    } catch {
+      return null;
+    }
+  }
+
   it("lists exactly the live stages and carries project + kind in the kickoff", async () => {
     await produceStage("subscription-page", "wireframe");
     await produceStage("settings-flow", "hifi");
-    select.mockImplementation(async (_title: unknown, options: unknown) =>
-      (options as string[]).find((option) => option.startsWith("settings-flow / hifi")),
-    );
+    answerPanels("settings-flow / hifi", UPDATE_SCOPE_CHOICES[0].label);
     const { commands, sendUserMessage } = harness();
 
     await commands
@@ -386,12 +414,100 @@ describe("update branch", () => {
     ).toHaveLength(1);
     expect(options.filter((o) => o.startsWith("settings-flow / hifi"))).toHaveLength(1);
 
+    // 范围声明也进 kickoff，agent 才知道这轮走哪条路。
     expect(sendUserMessage).toHaveBeenCalledWith(
-      "/skill:xpi-prototype-design update --project settings-flow --kind hifi 调整侧栏",
+      "/skill:xpi-prototype-design update --project settings-flow --kind hifi --scope quick 调整侧栏",
       {
         expandPromptTemplates: true,
       },
     );
+  });
+
+  it("范围声明在 agent 启动前就落盘，于是「直接改」只点一次", async () => {
+    await produceStage("subscription-page", "wireframe");
+    answerPanels("subscription-page / wireframe", UPDATE_SCOPE_CHOICES[0].label);
+    const { commands, sendUserMessage } = harness();
+
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("update 改一行文案", commandContext());
+
+    // 挑项目 + 声明范围 = 两次点击，之后 current/ 就放行，不再有第三张卡。
+    expect(select).toHaveBeenCalledTimes(2);
+    const record = await gateRecord("subscription-page", "wireframe");
+    expect(record?.answer).toBe("execute");
+    // 阶段还没有快照，本轮基线是 0。
+    expect(record?.baseline).toBe(0);
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope quick 改一行文案",
+      {
+        expandPromptTemplates: true,
+      },
+    );
+  });
+
+  it("选「先给改动清单」时只留 save 记录，current/ 继续挡着", async () => {
+    await produceStage("subscription-page", "wireframe");
+    answerPanels("subscription-page / wireframe", UPDATE_SCOPE_CHOICES[1].label);
+    const { commands, sendUserMessage } = harness();
+
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("update 重写笔记面板", commandContext());
+
+    expect((await gateRecord("subscription-page", "wireframe"))?.answer).toBe("save");
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope plan 重写笔记面板",
+      {
+        expandPromptTemplates: true,
+      },
+    );
+  });
+
+  it("取消范围声明就整轮放弃：不发消息，也不留记录", async () => {
+    await produceStage("subscription-page", "wireframe");
+    answerPanels("subscription-page / wireframe", undefined);
+    const { commands, sendUserMessage } = harness();
+
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("update 改一行文案", commandContext());
+
+    expect(sendUserMessage).not.toHaveBeenCalled();
+    expect(await gateRecord("subscription-page", "wireframe")).toBeNull();
+  });
+
+  it("取消需求框时连范围声明都不问，也不留记录", async () => {
+    await produceStage("subscription-page", "wireframe");
+    custom.mockResolvedValue(undefined);
+    answerPanels("subscription-page / wireframe", UPDATE_SCOPE_CHOICES[0].label);
+    const { commands, sendUserMessage } = harness();
+
+    await commands.get("xpi-prototype-design")?.handler("update", commandContext());
+
+    // 只问了项目：需求都没描述，判断不了这一轮有多大。
+    expect(custom).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(sendUserMessage).not.toHaveBeenCalled();
+    expect(await gateRecord("subscription-page", "wireframe")).toBeNull();
+  });
+
+  it("无面板的模式停在阶段选择上，不会顺手写一份没人点过的记录", async () => {
+    await produceStage("subscription-page", "wireframe");
+    const { commands, sendUserMessage } = harness();
+
+    await commands.get("xpi-prototype-design")?.handler(
+      "update 改一行文案",
+      commandContext({
+        hasUI: false,
+        mode: "print",
+      }),
+    );
+
+    expect(select).not.toHaveBeenCalled();
+    // 没有用户点过的答案，就不该有 gate.json——否则等于替用户放行。
+    expect(await gateRecord("subscription-page", "wireframe")).toBeNull();
+    expect(sendUserMessage).not.toHaveBeenCalled();
   });
 
   it("says there is nothing to update when no stage has output", async () => {
