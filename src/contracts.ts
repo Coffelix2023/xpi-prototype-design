@@ -14,12 +14,14 @@ export type Kind = (typeof KINDS)[number];
 /**
  * 命令模式闭集。
  *
- * 前两项与 KINDS 同构——既是「模式」也是「阶段」；后两项是纯命令模式，
- * 不对应任何产出目录，因此不进 KINDS。
+ * 前三项与 KINDS 有关联：wireframe / hifi 既是「模式」也是「阶段」，
+ * execute 是执行腿的入口（读已落盘的 tasks.md 续跑），不对应新目录；
+ * 后两项 update / archive 是纯命令模式，同样不进 KINDS。
  */
 export const MODES = [
   "wireframe",
   "hifi",
+  "execute",
   "update",
   "archive",
 ] as const;
@@ -71,16 +73,21 @@ export const CHANGELOG_MARKER = "<!-- ENTRIES -->";
 
 export const CHANGELOG_FILE = "CHANGELOG.md";
 
+/** 任务清单文件名。规划腿的产物，也是执行腿唯一的进度事实来源。 */
+export const TASKS_FILE = "tasks.md";
+
 /** 每个阶段需要保证存在的文档骨架。 */
 export const DOC_FILES = {
   hifi: [
     "plan.md",
+    TASKS_FILE,
     "principles.md",
     "DELTA.md",
     CHANGELOG_FILE,
   ],
   wireframe: [
     "plan.md",
+    TASKS_FILE,
     "principles.md",
     CHANGELOG_FILE,
   ],
@@ -92,6 +99,40 @@ const LEADING_NEWLINES_PATTERN = /^\n+/;
 
 export type ThemesStatus = "present" | "created";
 
+/**
+ * 任务清单进度：`tasks.md` 里已声明 / 已勾选的任务条数。
+ *
+ * 只数 checkbox，不解析任务正文——执行腿读全文，状态面板只报进度。
+ */
+export interface TaskProgress {
+  done: number;
+  total: number;
+}
+
+/** 任务行：未勾选（含进行中的 ⏳ 行）与已勾选两种形态。 */
+const TASK_LINE_PATTERN = /^[ \t]*[-*][ \t]*\[([ xX])\]/gm;
+
+/**
+ * 数出任务进度。
+ *
+ * 一条都解析不出时返回 null，与「0 项待办」区分开：前者是计划还没落盘，
+ * 后者是任务全部完成。
+ */
+export function parseTaskProgress(markdown: string): TaskProgress | null {
+  let done = 0;
+  let total = 0;
+  for (const match of markdown.matchAll(TASK_LINE_PATTERN)) {
+    total += 1;
+    if (match[1].toLowerCase() === "x") done += 1;
+  }
+  return total === 0
+    ? null
+    : {
+        done,
+        total,
+      };
+}
+
 export interface ArtifactState {
   /** `current/` 内的文件数；0 表示尚未产出。 */
   currentFileCount: number;
@@ -102,10 +143,25 @@ export interface ArtifactState {
   latestEntry: string | null;
   /** 项目 slug。 */
   project: string;
+  /** tasks.md 的任务进度；null 表示计划还没落盘。 */
+  tasks: TaskProgress | null;
   /** 项目根是否已有 THEMES.md。只读状态不做补齐。 */
   themesPresent: boolean;
   /** 已存在的版本号，升序。 */
   versions: number[];
+}
+
+/** 阶段是否已有产出（版本或 current/ 文件）。update / archive 只在有产出的阶段里选。 */
+export function hasOutput(value: {
+  currentFileCount: number;
+  versions: readonly number[];
+}): boolean {
+  return value.versions.length > 0 || value.currentFileCount > 0;
+}
+
+/** 阶段是否已有可执行的任务清单。execute 只列这类阶段。 */
+export function hasPlan(value: { tasks: TaskProgress | null }): boolean {
+  return value.tasks !== null;
 }
 
 export interface SetupResult {

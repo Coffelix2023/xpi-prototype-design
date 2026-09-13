@@ -49,6 +49,7 @@ describe("setupArtifacts", () => {
     expect(result.themesStatus).toBe("created");
     expect(result.createdDocs).toEqual([
       "plan.md",
+      "tasks.md",
       "principles.md",
       "CHANGELOG.md",
     ]);
@@ -57,6 +58,8 @@ describe("setupArtifacts", () => {
     expect(state.themesPresent).toBe(true);
     expect(state.versions).toEqual([]);
     expect(state.project).toBe(PROJECT);
+    // 骨架里的 tasks.md 没有任务行，所以「只建了目录」不算有计划。
+    expect(state.tasks).toBeNull();
   });
 
   it("adds DELTA.md only for hifi", async () => {
@@ -366,5 +369,53 @@ describe("detectLegacyLayout", () => {
 
   it("returns nothing when there is no artifact root", async () => {
     expect(await detectLegacyLayout(root)).toEqual([]);
+  });
+});
+
+describe("task progress", () => {
+  async function waitForPlan(
+    project: string,
+    kind: "hifi" | "wireframe",
+    body: string,
+  ): Promise<void> {
+    await setupArtifacts(root, project, kind);
+    await writeFile(join(stage(project, kind), "tasks.md"), body, "utf8");
+  }
+
+  it("counts done and pending tasks straight off disk", async () => {
+    await waitForPlan(
+      PROJECT,
+      "wireframe",
+      [
+        "## 任务",
+        "- [x] 1.1 首页结构",
+        "  验证: 打开 screens/01-home.html 通过",
+        "- [ ] 1.2 空 / 加载 / 错误态",
+      ].join("\n"),
+    );
+    expect((await readArtifactState(root, PROJECT, "wireframe")).tasks).toEqual({
+      done: 1,
+      total: 2,
+    });
+  });
+
+  it("keeps a plan-only stage in the list — that is the execute target", async () => {
+    // 纯骨架仍在列表外：它没有产出，也没有任务行。
+    await setupArtifacts(root, OTHER_PROJECT, "hifi");
+    expect(await listProjects(root)).toEqual([]);
+
+    await waitForPlan(OTHER_PROJECT, "hifi", "- [ ] 1.1 高保真骨架");
+    const stages = await listProjects(root);
+    expect(stages.map((entry) => `${entry.project}/${entry.kind}`)).toEqual([
+      "settings-flow/hifi",
+    ]);
+    expect(stages[0]).toMatchObject({
+      currentFileCount: 0,
+      versions: [],
+      tasks: {
+        done: 0,
+        total: 1,
+      },
+    });
   });
 });

@@ -4,7 +4,7 @@
  * 骨架刻意保持短：它规定**结构与硬约束**，具体内容由 agent 在深挖后填写。
  */
 
-import { CHANGELOG_MARKER, type Kind } from "./contracts.js";
+import { CHANGELOG_MARKER, type Kind, TASKS_FILE } from "./contracts.js";
 
 const PLAN_WIREFRAME = `# plan.md — wireframe
 
@@ -61,12 +61,8 @@ const PLAN_WIREFRAME = `# plan.md — wireframe
 
 ## 8. 任务编排
 
-> 产出顺序与依赖。**仅保存计划**时到此为止；用户说「开始执行」就从第一个未完成项接着做。
-
-| # | 任务 | 依赖 | 产出 | 技能 |
-| :--- | :--- | :--- | :--- | :--- |
-| 1 | 首页结构 | — | \`screens/01-home.html\` | \`wireframe-spec\` |
-| 2 | 空 / 加载 / 错误态 | 1 | \`screens/01-home--empty.html\` 等 | \`wireframe-spec\` |
+> 任务清单与进度在同目录 \`tasks.md\`（checkbox 状态机），本文件不重复维护清单。
+> 这一节只写**切分理由**：为什么这样排、依赖在哪、哪几项可以并行、哪几项必须等用户拍板。
 
 ## 9. 成功标准
 
@@ -120,13 +116,8 @@ const PLAN_HIFI = `# plan.md — hifi
 - [ ] design-qa-checklist
 ## 7. 任务编排
 
-> 产出顺序与依赖。**仅保存计划**时到此为止；用户说「开始执行」就从第一个未完成项接着做。
-
-| # | 任务 | 依赖 | 产出 | 技能 |
-| :--- | :--- | :--- | :--- | :--- |
-| 1 | 首页高保真骨架 | — | \`index.html\` | \`design-token\`、\`typography-scale\` |
-| 2 | sidebar + 分栏拖拽 | 1 | \`index.html\` | \`component-spec\`、\`micro-interaction-spec\` |
-| 3 | 状态覆盖齐全 | 1 | \`index.html\` | \`loading-states\`、\`error-handling-ux\` |
+> 任务清单与进度在同目录 \`tasks.md\`（checkbox 状态机），本文件不重复维护清单。
+> 这一节只写**切分理由**：为什么这样排、依赖在哪、哪几项可以并行、哪几项必须等用户拍板。
 
 ## 8. 成功标准
 
@@ -137,7 +128,6 @@ const PLAN_HIFI = `# plan.md — hifi
 `;
 
 const PRINCIPLES_WIREFRAME = `# principles.md — wireframe
-
 > 线框阶段的硬约束。与本文档冲突的做法一律视为缺陷。
 
 ## 硬约束
@@ -191,6 +181,32 @@ const DELTA = `# DELTA.md — hifi ↔ wireframe 差异说明
 > 信息层级（哪些内容在前、有哪些 CTA）不可擅自变更；仅布局与视觉可在本节说明后调整。
 `;
 
+/**
+ * 任务清单骨架。
+ *
+ * 刻意**不含任何可解析的任务行**：这样「只有骨架、还没填计划」的阶段不会被
+ * `parseTaskProgress` 误判成「有任务」，`prototype_status` 与 execute 的候选列表
+ * 也就不会把空壳当成待执行计划。格式约定写在 SKILL.md 里，不靠示例行暗示。
+ */
+function tasksTemplate(kind: Kind): string {
+  return `# tasks.md — ${kind}
+
+> 本阶段的**任务清单与进度**，与 \`plan.md\` 一起在每轮深挖后覆写，不新建副本。
+> 编号顺序即产出顺序；只有非线性依赖才在行尾补 \`(依赖: 1.2)\`。
+> 状态机：待执行是空方框；进行中是空方框加行尾 \`⏳ in_progress\`；完成是打勾方框并紧跟一条验证子行。
+> 一次只推进一项：先标进行中，产出后立刻勾选并写验证子行，不批量补勾。
+> **首轮产出前必须先过计划闸门**（见 SKILL.md §5.1）。用户没发话，就停在这里。
+
+## 任务
+
+<!-- 逐条填写。每行自带验收与产出，形如：验收:hero 三块信息齐全;产出:current/screens/01-home.html -->
+
+## 阻塞与决定
+
+<!-- 卡住时记录：卡在哪一条、为什么、下一步等谁发话 -->
+`;
+}
+
 function changelogTemplate(kind: Kind): string {
   return `# CHANGELOG — ${kind}
 
@@ -204,6 +220,7 @@ export function docTemplate(kind: Kind, file: string): string | undefined {
   if (file === "CHANGELOG.md") return changelogTemplate(kind);
   if (file === "DELTA.md") return kind === "hifi" ? DELTA : undefined;
   if (file === "plan.md") return kind === "hifi" ? PLAN_HIFI : PLAN_WIREFRAME;
+  if (file === TASKS_FILE) return tasksTemplate(kind);
   if (file === "principles.md") {
     return kind === "hifi" ? PRINCIPLES_HIFI : PRINCIPLES_WIREFRAME;
   }

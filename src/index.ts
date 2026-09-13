@@ -6,6 +6,8 @@ import { type AutocompleteItem, fuzzyFilter } from "@earendil-works/pi-tui";
 import { archiveProject, listProjects, type ProjectStage } from "./artifacts.js";
 import {
   choiceLabels,
+  hasOutput,
+  hasPlan,
   MODES,
   type Mode,
   parseCommandArgs,
@@ -61,6 +63,10 @@ const MODE_CHOICES = toChoices(
     {
       description: "创建高保真原型设计（可选基于已有线框）",
       mode: "hifi",
+    },
+    {
+      description: "按已保存的任务清单继续产出",
+      mode: "execute",
     },
     {
       description: "修改已有的原型设计项目",
@@ -124,7 +130,7 @@ async function chooseHifiEntry(
     label: "直接开始新的高保真（建议先完成线框设计）",
   };
   const wireframes = (await listProjects(ctx.cwd)).filter(
-    (stage) => stage.kind === "wireframe",
+    (stage) => stage.kind === "wireframe" && hasOutput(stage),
   );
 
   if (wireframes.length === 0) {
@@ -162,28 +168,39 @@ async function chooseHifiEntry(
   return null;
 }
 
-/** 阶段选项文本。update 与 archive 共用同一份列表，避免两处格式漂移。 */
+/** 阶段选项文本。execute / update / archive 共用同一份列表，避免多处格式漂移。 */
 function stageLabel(stage: ProjectStage): string {
   const versions =
     stage.versions.length === 0
       ? "无版本"
       : stage.versions.map((v) => `v${v}`).join(" ");
-  return `${stage.project} / ${stage.kind} · ${versions} · ${stage.currentFileCount} 文件`;
+  const tasks = stage.tasks
+    ? `任务 ${stage.tasks.done}/${stage.tasks.total}`
+    : "无任务";
+  return `${stage.project} / ${stage.kind} · ${versions} · ${stage.currentFileCount} 文件 · ${tasks}`;
+}
+
+/** 阶段候选的过滤与文案；三种入口各给一句能照着做的下一步。 */
+interface StagePicker {
+  empty: string;
+  /** update / archive 只看有产出的阶段，execute 只看有计划任务的阶段。 */
+  keep: (stage: ProjectStage) => boolean;
+  title: string;
 }
 
 /**
  * 让用户挑一个活跃阶段。
  *
- * 返回 `null` 表示无法继续——没有项目、没有面板、或用户取消，三种情况都在
+ * 返回 `null` 表示无法继续——没有候选、没有面板、或用户取消，三种情况都在
  * 这里给出可读通知，调用方只需 return，不必再分辨原因。
  */
 async function pickStage(
   ctx: ExtensionCommandContext,
-  title: string,
+  picker: StagePicker,
 ): Promise<ProjectStage | null> {
-  const stages = await listProjects(ctx.cwd);
+  const stages = (await listProjects(ctx.cwd)).filter(picker.keep);
   if (stages.length === 0) {
-    ctx.ui.notify("还没有任何原型设计项目。先用 wireframe 或 hifi 创建一个。");
+    ctx.ui.notify(picker.empty);
     return null;
   }
   // 与 hifi 同一条判据：rpc 模式能弹面板，只有 json / print 不能。
@@ -192,7 +209,7 @@ async function pickStage(
     return null;
   }
   const choices = toChoices(stages, stageLabel);
-  const chosen = await ctx.ui.select(title, choiceLabels(choices));
+  const chosen = await ctx.ui.select(picker.title, choiceLabels(choices));
   return pickChoice(choices, chosen) ?? null;
 }
 
@@ -203,6 +220,8 @@ async function pickStage(
  * 与 xpi-research 的 `ctx.ui.input` 同款：单行足够，Esc 取消即放弃整轮。
  * 输入框留空是允许的——无需求也能起一轮，只是 agent 会自己深挖。
  * 无对话框能力的模式（print / json）弹不出来，退化成直接发送。
+ * `askRequirement=false` 时连输入框都不弹：execute 续跑的是已经落盘的 tasks.md，
+ * 再问一次「需求」只会让人以为要重开一轮。
  *
  * 刻意不在这里建骨架：项目 slug 由 agent 深挖后决定（见 SKILL.md），
  * 命令层只负责选模式与触发，避免猜错项目名后留下空目录。
@@ -212,9 +231,10 @@ async function fire(
   ctx: ExtensionCommandContext,
   target: string,
   rest: string,
+  askRequirement = true,
 ): Promise<void> {
   let prompt = kickoff(target, rest);
-  if (rest === "" && ctx.hasUI) {
+  if (askRequirement && rest === "" && ctx.hasUI) {
     const entered = await ctx.ui.input(
       `${target} · 需求（可留空）`,
       "例如：订阅页，含月付/年付切换与账单历史",
@@ -233,7 +253,7 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
   registerPrototypeTools(pi);
 
   pi.registerCommand("xpi-prototype-design", {
-    description: "原型设计流程：wireframe / hifi / update / archive",
+    description: "原型设计流程：wireframe / hifi / execute / update / archive",
     getArgumentCompletions: completions,
     handler: async (args, ctx) => {
       const parsed = parseCommandArgs(args);
@@ -254,8 +274,31 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
         return;
       }
 
+      if (mode === "execute") {
+        const stage = await pickStage(ctx, {
+          empty:
+            "没有任何已保存的任务清单。先跑 wireframe 或 hifi，把计划落到 tasks.md。",
+          keep: hasPlan,
+          title: "xpi-prototype-design：要执行哪个计划",
+        });
+        if (!stage) return;
+        // 末位 false = 不弹需求框：续跑已有计划，不是重开一轮。
+        await fire(
+          pi,
+          ctx,
+          `execute --project ${stage.project} --kind ${stage.kind}`,
+          parsed.rest,
+          false,
+        );
+        return;
+      }
+
       if (mode === "update") {
-        const stage = await pickStage(ctx, "xpi-prototype-design：要修改哪个项目");
+        const stage = await pickStage(ctx, {
+          empty: "还没有任何原型设计项目。先用 wireframe 或 hifi 创建一个。",
+          keep: hasOutput,
+          title: "xpi-prototype-design：要修改哪个项目",
+        });
         if (!stage) return;
         await fire(
           pi,
@@ -267,7 +310,11 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
       }
 
       if (mode === "archive") {
-        const stage = await pickStage(ctx, "xpi-prototype-design：要归档哪个项目");
+        const stage = await pickStage(ctx, {
+          empty: "还没有任何原型设计项目。先用 wireframe 或 hifi 创建一个。",
+          keep: hasOutput,
+          title: "xpi-prototype-design：要归档哪个项目",
+        });
         if (!stage) return;
         // 归档是纯文件操作，不需要 agent 参与，因此不发 skill 消息。
         try {
@@ -285,7 +332,7 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
         return;
       }
 
-      // 四个模式都已接线；给 Mode 加成员时这里会先出现未覆盖分支。
+      // 五个模式都已接线；给 Mode 加成员时这里会先出现未覆盖分支。
       ctx.ui.notify(usageText());
     },
   });

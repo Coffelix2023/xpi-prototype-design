@@ -6,6 +6,8 @@ import {
   CHANGELOG_MARKER,
   choiceLabels,
   formatStamp,
+  hasOutput,
+  hasPlan,
   highestVersion,
   insertChangelogEntry,
   isMode,
@@ -14,20 +16,23 @@ import {
   latestEntryTitle,
   MODES,
   parseCommandArgs,
+  parseTaskProgress,
   pickChoice,
   renderArchiveEntry,
   renderChangelogEntry,
   rollbackCommand,
   toChoices,
 } from "./contracts.js";
+import { docTemplate } from "./templates.js";
 
 describe("MODES", () => {
-  it("declares exactly the four command modes", () => {
+  it("declares exactly the five command modes", () => {
     expect([
       ...MODES,
     ]).toEqual([
       "wireframe",
       "hifi",
+      "execute",
       "update",
       "archive",
     ]);
@@ -38,6 +43,7 @@ describe("MODES", () => {
   });
 
   it("guards with isMode", () => {
+    expect(isMode("execute")).toBe(true);
     expect(isMode("update")).toBe(true);
     expect(isMode("archive")).toBe(true);
     expect(isMode("Upload")).toBe(false);
@@ -328,5 +334,81 @@ describe("archive", () => {
       versions: [],
     });
     expect(entry).toContain("- 版本：无");
+  });
+});
+
+describe("parseTaskProgress", () => {
+  it("counts checkboxes and treats ⏳ in_progress as unfinished", () => {
+    expect(
+      parseTaskProgress(
+        [
+          "## 任务",
+          "- [x] 1.1 首页结构",
+          "- [ ] 1.2 空态 ⏳ in_progress",
+          "- [X] 1.3 错误态",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      done: 2,
+      total: 3,
+    });
+  });
+
+  it("returns null for prose-only content, so a skeleton is not a plan", () => {
+    expect(parseTaskProgress("## 任务\n\n还没写任务\n")).toBeNull();
+  });
+
+  it("never counts a checkbox inside an indented note away from column start", () => {
+    // 验证子行不是任务行：它不带方框，所以只数真正的任务。
+    expect(parseTaskProgress("- [x] 1.1 骨架\n  验证: 打开页面通过\n")).toEqual({
+      done: 1,
+      total: 1,
+    });
+  });
+
+  it("a fresh tasks.md skeleton parses to null, so setup alone never looks like a plan", () => {
+    expect(parseTaskProgress(docTemplate("wireframe", "tasks.md") ?? "")).toBeNull();
+    expect(parseTaskProgress(docTemplate("hifi", "tasks.md") ?? "")).toBeNull();
+  });
+});
+
+describe("stage predicates", () => {
+  it("hasOutput is about produced files or versions", () => {
+    expect(
+      hasOutput({
+        currentFileCount: 0,
+        versions: [],
+      }),
+    ).toBe(false);
+    expect(
+      hasOutput({
+        currentFileCount: 1,
+        versions: [],
+      }),
+    ).toBe(true);
+    expect(
+      hasOutput({
+        currentFileCount: 0,
+        versions: [
+          1,
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("hasPlan is about a parsed task list", () => {
+    expect(
+      hasPlan({
+        tasks: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasPlan({
+        tasks: {
+          done: 0,
+          total: 2,
+        },
+      }),
+    ).toBe(true);
   });
 });

@@ -89,7 +89,7 @@ afterEach(async () => {
 });
 
 describe("extension registration", () => {
-  it("exposes one command with the four modes plus four tools", () => {
+  it("exposes one command with the five modes plus four tools", () => {
     const { commands, tools } = harness();
     const command = commands.get("xpi-prototype-design");
     expect(command).toBeDefined();
@@ -106,6 +106,10 @@ describe("extension registration", () => {
       command?.getArgumentCompletions?.("hifi")?.map((item) => item.value),
     ).toEqual([
       "hifi",
+    ]);
+    // `ex` 只命中 execute：其余模式都没有 x，子序列匹配不会误伤。
+    expect(command?.getArgumentCompletions?.("ex")?.map((item) => item.value)).toEqual([
+      "execute",
     ]);
   });
 
@@ -129,13 +133,14 @@ describe("extension registration", () => {
 });
 
 describe("mode picker", () => {
-  it("offers all four modes when none was typed, and acts on the pick", async () => {
+  it("offers all five modes when none was typed, and acts on the pick", async () => {
     select.mockResolvedValue("hifi — 创建高保真原型设计（可选基于已有线框）");
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("", commandContext());
 
     const options = select.mock.calls[0]?.[1] as string[];
-    expect(options).toHaveLength(4);
+    expect(options).toHaveLength(MODES.length);
+    expect(options).toHaveLength(5);
     for (const mode of MODES)
       expect(options.some((o) => o.startsWith(mode))).toBe(true);
     // 没写需求时先弹需求框，而不是空发消息。
@@ -259,6 +264,33 @@ async function produceStage(
   );
 }
 
+/**
+ * 造一个「计划已落盘」的阶段：`tasks.md` 里有 total 条任务、其中 done 条已勾选。
+ * 只在 tasks.md 有真实任务行时才算有计划，所以这里必须覆盖模板骨架。
+ */
+async function savePlan(
+  project: string,
+  kind: "hifi" | "wireframe",
+  done: number,
+  total: number,
+): Promise<void> {
+  await setupArtifacts(root, project, kind);
+  const tasks = Array.from(
+    {
+      length: total,
+    },
+    (_, index) => `- [${index < done ? "x" : " "}] 1.${index + 1} 任务${index + 1}`,
+  );
+  await writeFile(
+    join(root, ".pi/prototype-design", project, kind, "tasks.md"),
+    [
+      "## 任务",
+      ...tasks,
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 describe("hifi dual entry", () => {
   it("offers every wireframe-backed project plus a from-scratch entry", async () => {
     await produceStage("subscription-page", "wireframe");
@@ -374,6 +406,76 @@ describe("update branch", () => {
     const { commands, sendUserMessage } = harness();
 
     await commands.get("xpi-prototype-design")?.handler("update", commandContext());
+
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(sendUserMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("execute branch", () => {
+  it("lists only stages with a saved task list, and never asks for a requirement again", async () => {
+    await produceStage("subscription-page", "wireframe"); // 有产出，但没有计划
+    await savePlan("settings-flow", "hifi", 1, 3);
+    select.mockImplementation(async (_title: unknown, options: unknown) =>
+      (options as string[]).find((option) => option.startsWith("settings-flow / hifi")),
+    );
+    const { commands, sendUserMessage } = harness();
+
+    await commands.get("xpi-prototype-design")?.handler("execute", commandContext());
+
+    const options = select.mock.calls[0]?.[1] as string[];
+    expect(options).toHaveLength(1);
+    // 项目名后面直接跟任务进度，用户能看出这个计划还剩几项。
+    expect(options[0]).toContain("任务 1/3");
+    // execute 续跑的是已落盘的 tasks.md，再弹一次「需求」框只会让人以为要重开一轮。
+    expect(input).not.toHaveBeenCalled();
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "/skill:xpi-prototype-design execute --project settings-flow --kind hifi",
+      {
+        expandPromptTemplates: true,
+      },
+    );
+  });
+
+  it("carries text typed after the mode into the kickoff", async () => {
+    await savePlan("subscription-page", "wireframe", 0, 2);
+    // 只有一个候选时也走面板：选中它，模式后面的文字原样带进 kickoff。
+    select.mockImplementation(
+      async (_title: unknown, options: unknown) => (options as string[])[0],
+    );
+    const { commands, sendUserMessage } = harness();
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("execute 先做首页", commandContext());
+
+    expect(input).not.toHaveBeenCalled();
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "/skill:xpi-prototype-design execute --project subscription-page --kind wireframe 先做首页",
+      {
+        expandPromptTemplates: true,
+      },
+    );
+  });
+
+  it("says there is nothing to execute when no task list was saved", async () => {
+    // 只有骨架、没有任务行的阶段不算有计划。
+    await produceStage("subscription-page", "wireframe");
+    await setupArtifacts(root, "fresh-project", "hifi");
+    const { commands, sendUserMessage } = harness();
+
+    await commands.get("xpi-prototype-design")?.handler("execute", commandContext());
+
+    expect(select).not.toHaveBeenCalled();
+    expect(String(notify.mock.calls[0]?.[0])).toContain("没有任何已保存的任务清单");
+    expect(sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not kick off when the user cancels the picker", async () => {
+    await savePlan("subscription-page", "wireframe", 0, 2);
+    select.mockResolvedValue(undefined);
+    const { commands, sendUserMessage } = harness();
+
+    await commands.get("xpi-prototype-design")?.handler("execute", commandContext());
 
     expect(select).toHaveBeenCalledTimes(1);
     expect(sendUserMessage).not.toHaveBeenCalled();

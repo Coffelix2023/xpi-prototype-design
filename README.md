@@ -56,17 +56,32 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 
 | Command | Description |
 | --- | --- |
-| `/xpi-prototype-design` | List the four modes and pick one |
+| `/xpi-prototype-design` | List the five modes and pick one |
 | `/xpi-prototype-design wireframe <requirement>` | Start a wireframe design |
 | `/xpi-prototype-design hifi [<requirement>]` | Start a hifi design — build on an existing wireframe, or go from scratch |
+| `/xpi-prototype-design execute` | Pick a saved `tasks.md` and continue from its first unfinished task |
 | `/xpi-prototype-design update` | Pick an existing project to revise |
 | `/xpi-prototype-design archive` | Pick a finished project to archive |
 
-Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all four.
+Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all five.
 
-Omit the requirement and a single-line requirement dialog appears (the same `ctx.ui.input` style as `/xpi-research`): what you type rides along with the command, an empty submit starts the round with no requirement, and Esc abandons it. Only the run modes without an editor (print / json) skip the dialog and send straight away.
+### Progressive by design: a planning leg and an execution leg
 
-The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent.
+A prototype is not "answer the questions and start drawing". Once discovery (3 rounds × 3 questions) ends, the agent writes its conclusions to two files — `plan.md` (the requirement record) and `tasks.md` (the task list with progress) — and **then stops**, offering one three-way card:
+
+| Option | Outcome |
+| --- | --- |
+| Save only, execute later (default, listed first) | The planning leg ends here: report the two paths and a task summary, produce nothing |
+| Save, then execute now | This round continues into the task list |
+| Something still needs filling in | The agent asks which part is missing, then returns to the same card |
+
+After choosing "Save only", `/xpi-prototype-design execute` returns to that leg at any time: the picker lists only stages that **have a task list**, with progress attached (e.g. `subscription-page / wireframe · v1 · 3 files · 任务 2/7`), and the agent resumes from the first unfinished task without re-running discovery or asking for the requirement again.
+
+Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`.
+
+Omit the requirement and a single-line requirement dialog appears (the same `ctx.ui.input` style as `/xpi-research`): what you type rides along with the command, an empty submit starts the round with no requirement, and Esc abandons it. Only the run modes without an editor (print / json) skip the dialog and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens that dialog**.
+
+The command never creates directories: the project slug is decided by the agent after discovery, so a wrong guess cannot leave empty folders behind. `archive` runs entirely in the command layer and never invokes the agent; `execute` lists only stages that already have task lines in `tasks.md`.
 
 ### Tools
 
@@ -88,6 +103,7 @@ The command never creates directories: the project slug is decided by the agent 
     ├── <project>/                     # kebab-case, e.g. subscription-page
     │   └── <kind>/                    # wireframe | hifi
     │       ├── plan.md                # requirements; overwritten each round
+    │       ├── tasks.md               # task list and progress; the execution leg's single source of truth
     │       ├── principles.md          # hard constraints for the stage
     │       ├── DELTA.md               # hifi only: deviations from the wireframe
     │       ├── CHANGELOG.md           # reverse-chronological, newest first

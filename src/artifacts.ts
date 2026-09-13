@@ -30,18 +30,22 @@ import {
   CURRENT_DIR,
   DOC_FILES,
   formatStamp,
+  hasOutput,
   highestVersion,
   insertChangelogEntry,
   isValidProjectSlug,
   KINDS,
   type Kind,
   latestEntryTitle,
+  parseTaskProgress,
   renderArchiveEntry,
   renderChangelogEntry,
   renderEntryTitle,
   rollbackCommand,
   type SetupResult,
   type SnapshotResult,
+  TASKS_FILE,
+  type TaskProgress,
   THEMES_FILE,
   VERSION_DIR_PATTERN,
 } from "./contracts.js";
@@ -224,7 +228,7 @@ export async function snapshotArtifact(
   };
 }
 
-/** 只读状态：版本列表、当前产出文件数、最新日志标题、主题是否就位。 */
+/** 只读状态：版本列表、当前产出文件数、任务进度、最新日志标题、主题是否就位。 */
 export async function readArtifactState(
   projectRoot: string,
   project: string,
@@ -235,12 +239,17 @@ export async function readArtifactState(
   const changelog = (await exists(changelogPath))
     ? await readFile(changelogPath, "utf8")
     : "";
+  const tasksPath = join(directory, TASKS_FILE);
+  const tasks = (await exists(tasksPath))
+    ? parseTaskProgress(await readFile(tasksPath, "utf8"))
+    : null;
   return {
     currentFileCount: await countFiles(join(directory, CURRENT_DIR)),
     directory: toPattern(projectRoot, directory),
     kind,
     latestEntry: latestEntryTitle(changelog) ?? null,
     project,
+    tasks,
     themesPresent: await exists(join(resolve(projectRoot), THEMES_FILE)),
     versions: await listVersions(directory),
   };
@@ -299,12 +308,14 @@ export async function findPreviewTarget(
   };
 }
 
-/** 一个活跃的 (project, kind) 组合，供 update / archive 列表使用。 */
+/** 一个活跃的 (project, kind) 组合，供 execute / update / archive 的候选列表使用。 */
 export interface ProjectStage {
   currentFileCount: number;
   kind: Kind;
   latestEntry: string | null;
   project: string;
+  /** tasks.md 的任务进度；null 表示计划还没落盘。 */
+  tasks: TaskProgress | null;
   versions: number[];
 }
 
@@ -313,7 +324,8 @@ export interface ProjectStage {
  *
  * `archive/` 必须显式跳过：它在 slug 规则下是个合法名字，只能靠名字排除，
  * 不能指望「单层目录」这种结构性推断——那是一条会被未来布局变更推翻的假设。
- * 没有产出又没有版本的阶段同样跳过：那是空壳，列出来只是噪音。
+ * 空壳阶段跳过：没有产出、没有版本、也没有任务清单的，列出来只是噪音。
+ * 反过来，**有计划但还没产出的阶段必须保留**——那正是 execute 要接着做的东西。
  */
 export async function listProjects(projectRoot: string): Promise<ProjectStage[]> {
   const root = join(resolve(projectRoot), ARTIFACT_ROOT);
@@ -328,12 +340,13 @@ export async function listProjects(projectRoot: string): Promise<ProjectStage[]>
     if (entry.name === ARCHIVE_DIR || !isValidProjectSlug(entry.name)) continue;
     for (const kind of KINDS) {
       const state = await readArtifactState(projectRoot, entry.name, kind);
-      if (state.versions.length === 0 && state.currentFileCount === 0) continue;
+      if (!hasOutput(state) && state.tasks === null) continue;
       stages.push({
         currentFileCount: state.currentFileCount,
         kind,
         latestEntry: state.latestEntry,
         project: entry.name,
+        tasks: state.tasks,
         versions: state.versions,
       });
     }

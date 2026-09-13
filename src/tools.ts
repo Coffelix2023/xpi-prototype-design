@@ -21,7 +21,12 @@ import {
   setupArtifacts,
   snapshotArtifact,
 } from "./artifacts.js";
-import { KINDS, type Kind, PROJECT_SLUG_PATTERN } from "./contracts.js";
+import {
+  KINDS,
+  type Kind,
+  PROJECT_SLUG_PATTERN,
+  type TaskProgress,
+} from "./contracts.js";
 import { openInSystemBrowser } from "./preview.js";
 
 /** 工具输出上限；超出截断，保证回灌上下文有界。 */
@@ -49,6 +54,11 @@ function list(values: readonly string[]): string {
   return values.length === 0 ? "（无）" : values.join("、");
 }
 
+/** 任务进度：`2/7`；null 表示计划还没落盘，与「0 项待办」区分开。 */
+function taskLabel(tasks: TaskProgress | null): string {
+  return tasks ? `${tasks.done}/${tasks.total}` : "无";
+}
+
 /** 单条状态块。首行是相对路径，本身已含 project 与 kind。 */
 export async function describeState(
   ctx: ExtensionContext,
@@ -62,6 +72,7 @@ export async function describeState(
     `${state.directory}`,
     `  版本: ${versions}`,
     `  当前产出文件: ${state.currentFileCount}`,
+    `  任务: ${taskLabel(state.tasks)}`,
     `  最新记录: ${state.latestEntry ?? "无"}`,
     `  THEMES.md: ${state.themesPresent ? "已就位" : "缺失（调用 prototype_setup 补齐）"}`,
   ].join("\n");
@@ -82,7 +93,7 @@ export async function describeOverview(
   const lines = stages.map((stage) => {
     const versions =
       stage.versions.length === 0 ? "无" : stage.versions.map((v) => `v${v}`).join(" ");
-    return `${stage.project} / ${stage.kind} · ${versions} · ${stage.currentFileCount} 文件 · ${stage.latestEntry ?? "无记录"}`;
+    return `${stage.project} / ${stage.kind} · ${versions} · ${stage.currentFileCount} 文件 · 任务 ${taskLabel(stage.tasks)} · ${stage.latestEntry ?? "无记录"}`;
   });
   if (lines.length === 0) lines.push("（暂无原型设计项目）");
 
@@ -114,7 +125,7 @@ export function registerPrototypeTools(pi: ExtensionAPI): void {
           `已就绪：${result.directory}`,
           `本次新建文档：${list(result.createdDocs)}`,
           `${result.themesPath}：${result.themesStatus === "created" ? "已从扩展模板创建" : "已存在，未改动"}`,
-          "下一步：按 skills/xpi-prototype-design/SKILL.md 的流程深挖需求后写入 plan.md，再产出文件到 current/。",
+          "下一步：按 skills/xpi-prototype-design/SKILL.md 深挖需求，结论写进 plan.md、任务清单写进 tasks.md；过了计划闸门再产出到 current/。",
         ].join("\n"),
       );
       return {

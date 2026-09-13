@@ -11,7 +11,7 @@
 | PR | Pull Request，合并请求。 | 仅由用户显式提出时才走 |
 | ruleset | GitHub 仓库规则集。 | 由用户在 GitHub UI 管理；挡的是历史重写与删除，不是普通提交 |
 | 远端同步 | 先 fetch，再决定是否 rebase / push / 停止。 | 避免覆盖与分叉 |
-| 模式 (mode) | 命令模式闭集：`wireframe` / `hifi` / `update` / `archive`。 | 类型即 `Mode`；前两项与 `KINDS` 同构 |
+| 模式 (mode) | 命令模式闭集：`wireframe` / `hifi` / `execute` / `update` / `archive`。 | 类型即 `Mode`；`wireframe` / `hifi` 与 `KINDS` 同构，`execute` 是执行腿入口但不产新目录 |
 | 项目 (project) | 一个设计项目的 slug，产物目录的第一层。 | 小写 kebab-case；同一项目的 `wireframe` 与 `hifi` 必须同名 |
 | 阶段 (kind) | 产物类别，闭集 `wireframe` / `hifi`。 | 类型即 `Kind`；项目下的第二层，不含 `update` / `archive` |
 | 产物目录 | `<cwd>/.pi/prototype-design/<project>/<kind>/`。 | 相对项目根 |
@@ -25,12 +25,19 @@
 | 像素评审 | 用 `xpi-visualoop` 抓真实渲染像素并让用户圈选反馈。 | 受控 Chromium + 独立 profile |
 | 归档 (archive) | 把整个 `<project>/<kind>/` 移进 `archive/` 的动作。 | 可逆；命令层直接执行，不经过 agent |
 | 恢复命令 | 归档日志里记录的反向 `mkdir -p` + `mv`。 | 由工具生成，可直接粘贴执行 |
-| 计划闸门 (plan gate) | 深挖结束后、首次产出前的一次三选一确认：仅保存计划 / 保存后立即执行 / 还有需要补充的。 | 见 `SKILL.md` §5.1；停止提问不等于开始产出 |
+| 规划腿 (planning leg) | 深挖需求并把结论落盘成 `plan.md` + `tasks.md` 的那一段，终点即计划闸门。 | 规划腿不产出 `current/` 里的文件 |
+| 执行腿 (execution leg) | 从 `tasks.md` 第一个未完成任务接着产出，直到全部勾选的那一段。 | 由 `execute` 模式或用户明确发话触发；不重新深挖 |
+| 任务清单 (tasks.md) | 阶段内的任务与进度账本，一行一个任务，checkbox 即状态。 | 执行腿唯一的事实来源；`parseTaskProgress` 只数方框，不解析正文 |
+| 任务进度 (task progress) | `完成数 / 总数`，由 `tasks.md` 的 checkbox 数出。 | `prototype_status` 显示为 `任务 2/7`；null 表示计划还没落盘 |
+| 跳过 (skipped) | 任务行保留但行尾标 `⏭ skipped: <原因>`。 | 仍算未完成，不许删行——删行等于伪造完成 |
+| 计划闸门 (plan gate) | 深挖结束后、首次产出前的一次三选一确认：仅保存，稍后执行（默认首选）/ 保存后立即执行 / 还有需要补充的。 | 见 `SKILL.md` §5.1；停止提问不等于开始产出
 
 ## 避免用词 (Banned Synonyms)
 
 - 用「阶段」指 `kind`：不要写「stage / 类型」。
-- 用「模式」指 `Mode` 闭集：不要与「阶段」混用——`update` / `archive` 是模式但不是阶段。
+- 用「模式」指 `Mode` 闭集：不要与「阶段」混用——`execute` / `update` / `archive` 是模式但不是阶段。
+- 用「规划腿 / 执行腿」指两段流程：不要写「第一步 / 第二步」，那不是顺序而是两段可分开发生的会话。
+- 用「任务清单」指 `tasks.md`：不要写「TODO / checklist 文件」；计划闸门只保存它，不代替它。
 - 用「项目」指产物目录第一层的 slug：不要写「设计稿 / 工程 / workspace」。
 - 用「归档」指移进 `archive/`：不要写「删除 / 下线」——它是可逆移动，不是销毁。
 - 用「快照」指 `vN` 目录复制：不要写「备份 / checkpoint」。

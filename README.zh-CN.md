@@ -55,17 +55,32 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 | 命令 | 说明 |
 | --- | --- |
-| `/xpi-prototype-design` | 列出四个模式并选一个 |
+| `/xpi-prototype-design` | 列出五个模式并选一个 |
 | `/xpi-prototype-design wireframe <需求>` | 开始线框设计 |
 | `/xpi-prototype-design hifi [<需求>]` | 开始高保真设计 —— 可选基于某个已有线框，或从零开始 |
+| `/xpi-prototype-design execute` | 挑一个已落盘的 `tasks.md`，从第一个未完成任务继续产出 |
 | `/xpi-prototype-design update` | 选一个已有项目进行修改 |
 | `/xpi-prototype-design archive` | 选一个已完成项目归档 |
 
-补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部四项。
+补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部五项。
 
-不写需求时会弹一个单行需求框（与 `/xpi-research` 的目标输入框同款）：填了就随命令一起发出，留空回车等于「无需求」照常启动，Esc 取消则整轮放弃。只有没有输入框的运行模式（print / json）才会跳过这一步直接发送。
+### 渐进式：规划腿与执行腿
 
-命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent。
+原型不是「问完就开做」。深挖（3 轮 × 3 问）结束后，agent 先把结论落盘成两份文件——`plan.md`（需求事实）与 `tasks.md`（任务清单与进度）——**然后停下来**，发一张三选一卡：
+
+| 选项 | 结果 |
+| --- | --- |
+| 仅保存，稍后执行（默认首选） | 规划腿到此结束，回报文件路径与任务摘要，不产出任何文件 |
+| 保存后立即执行 | 这一次接着按任务清单产出 |
+| 还有需要补充的 | agent 追问缺的那一块，补完再回到同一张卡 |
+
+选择「仅保存」之后，随时可以用 `/xpi-prototype-design execute` 回到这条腿上：候选列表只显示**有计划任务**的阶段，并带上进度（如 `subscription-page / wireframe · v1 · 3 文件 · 任务 2/7`），选中后 agent 从第一个未完成任务接着做，不会重新深挖、也不再问一遍需求。
+
+`tasks.md` 的任务行是可核对的进度账本：`- [ ] 1.2 空态 (验收:…;产出:…)`、进行中加 `⏳ in_progress`、完成后打勾并紧跟一条验证子行。`prototype_status` 会把同一份进度汇总成 `任务 2/7`。
+
+不写需求时会弹一个单行需求框（与 `/xpi-research` 的目标输入框同款）：填了就随命令一起发出，留空回车等于「无需求」照常启动，Esc 取消则整轮放弃。只有没有输入框的运行模式（print / json）才会跳过这一步直接发送。`execute` 例外：它续跑已经落盘的计划，**不弹需求框**。
+
+命令层**从不建目录**：项目 slug 由 agent 深挖后决定，猜错也不会留下空文件夹。`archive` 完全在命令层完成，不会唤起 agent；`execute` 只列有 `tasks.md` 任务行的阶段。
 
 ### 工具
 
@@ -87,6 +102,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
     ├── <project>/                     # kebab-case，例如 subscription-page
     │   └── <kind>/                    # wireframe | hifi
     │       ├── plan.md                # 需求；每轮深挖后覆写
+    │       ├── tasks.md               # 任务清单与进度；执行腿唯一的事实来源
     │       ├── principles.md          # 本阶段的硬约束
     │       ├── DELTA.md               # 仅 hifi：相对线框的结构偏离
     │       ├── CHANGELOG.md           # 倒序，最新在最上方
