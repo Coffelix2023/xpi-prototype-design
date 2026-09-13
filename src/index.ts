@@ -14,6 +14,7 @@ import {
   pickChoice,
   toChoices,
 } from "./contracts.js";
+import { registerPrototypeGate } from "./gate.js";
 import { promptRequirement, requirementTitle } from "./requirement-editor.js";
 import { registerPrototypeTools } from "./tools.js";
 
@@ -250,6 +251,7 @@ async function fire(
 
 export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
   registerPrototypeTools(pi);
+  registerPrototypeGate(pi);
 
   pi.registerCommand("xpi-prototype-design", {
     description: "原型设计流程：wireframe / hifi / execute / update / archive",

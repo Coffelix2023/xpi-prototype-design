@@ -78,6 +78,81 @@ export const CHANGELOG_FILE = "CHANGELOG.md";
 /** 任务清单文件名。规划腿的产物，也是执行腿唯一的进度事实来源。 */
 export const TASKS_FILE = "tasks.md";
 
+/**
+ * 计划闸门的落盘文件：`<stage>/gate.json`。
+ *
+ * 它记录的是**用户**的选择，不是模型的自述：答案由 `prototype_gate` 弹卡采集后写入，
+ * `current/` 的写入许可读的也是它。放在阶段根而非 `current/` 内，因此不会被快照进 `vN/`。
+ */
+export const GATE_FILE = "gate.json";
+
+/** 闸门答案闭集。`execute` 是唯一放行 `current/` 写入的值。 */
+export const GATE_ANSWERS = [
+  "save",
+  "execute",
+  "more",
+] as const;
+export type GateAnswer = (typeof GATE_ANSWERS)[number];
+
+export function isGateAnswer(value: unknown): value is GateAnswer {
+  return (
+    typeof value === "string" && (GATE_ANSWERS as readonly string[]).includes(value)
+  );
+}
+
+export interface GateState {
+  answer: GateAnswer;
+  /** 采集时间，`formatStamp` 的固定宽度格式。 */
+  at: string;
+}
+
+/**
+ * 解析 `gate.json`。文件缺失、JSON 损坏、答案不在闭集里，一律返回 null。
+ *
+ * fail-closed：读不懂就是「用户还没确认」，于是 `current/` 写入被挡下。
+ */
+export function parseGateState(raw: string): GateState | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { answer, at } = parsed as Record<string, unknown>;
+    if (!isGateAnswer(answer)) return null;
+    return {
+      answer,
+      at: typeof at === "string" ? at : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 卡面选项。顺序即刹车优先：`save` 在第一格。
+ *
+ * 这段文案是用户、模型、文档三方的共同锚点：改一处就要同步 SKILL.md §5.1 的表。
+ * 放在 contracts 而非 gate.ts，是为了让状态面板也能引用同一份标签而不反向依赖工具层。
+ */
+export const GATE_CHOICES = [
+  {
+    answer: "save",
+    label: "仅保存计划，稍后执行",
+  },
+  {
+    answer: "execute",
+    label: "保存后立即执行",
+  },
+  {
+    answer: "more",
+    label: "还有需要补充的",
+  },
+] as const satisfies readonly {
+  answer: GateAnswer;
+  label: string;
+}[];
+
+export function gateLabel(answer: GateAnswer): string {
+  return GATE_CHOICES.find((choice) => choice.answer === answer)?.label ?? answer;
+}
 /** 每个阶段需要保证存在的文档骨架。 */
 export const DOC_FILES = {
   hifi: [
@@ -140,6 +215,8 @@ export interface ArtifactState {
   currentFileCount: number;
   /** 相对项目根的目录，例如 `.pi/prototype-design/subscription-page/wireframe`。 */
   directory: string;
+  /** 计划闸门状态；null 表示用户还没确认过。 */
+  gate: GateState | null;
   kind: Kind;
   /** CHANGELOG 顶部最近的条目标题，例如 `2026-09-13 10:22 · v3`。 */
   latestEntry: string | null;

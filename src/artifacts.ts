@@ -30,6 +30,9 @@ import {
   CURRENT_DIR,
   DOC_FILES,
   formatStamp,
+  GATE_FILE,
+  type GateAnswer,
+  type GateState,
   hasOutput,
   highestVersion,
   insertChangelogEntry,
@@ -37,6 +40,7 @@ import {
   KINDS,
   type Kind,
   latestEntryTitle,
+  parseGateState,
   parseTaskProgress,
   renderArchiveEntry,
   renderChangelogEntry,
@@ -228,7 +232,50 @@ export async function snapshotArtifact(
   };
 }
 
-/** 只读状态：版本列表、当前产出文件数、任务进度、最新日志标题、主题是否就位。 */
+/** `gate.json` 的绝对路径。 */
+function gatePath(projectRoot: string, project: string, kind: Kind): string {
+  return join(artifactDirectory(projectRoot, project, kind), GATE_FILE);
+}
+
+/**
+ * 只读计划闸门状态。文件缺失、JSON 损坏、答案不在闭集里，一律返回 null。
+ *
+ * 与 `parseGateState` 同一条 fail-closed 策略：读不懂就等于「用户还没确认」，
+ * 于是 `current/` 的写入继续被挡。
+ */
+export async function readGateState(
+  projectRoot: string,
+  project: string,
+  kind: Kind,
+): Promise<GateState | null> {
+  const path = gatePath(projectRoot, project, kind);
+  return (await exists(path)) ? parseGateState(await readFile(path, "utf8")) : null;
+}
+
+/**
+ * 落盘**用户**的选择。
+ *
+ * 调用方只有 `prototype_gate`：答案必须来自扩展自己弹的那张卡（或用户在聊天里
+ * 明确发话后的 resume），不是模型自述。
+ */
+export async function writeGateState(
+  projectRoot: string,
+  project: string,
+  kind: Kind,
+  answer: GateAnswer,
+): Promise<GateState> {
+  const state: GateState = {
+    answer,
+    at: formatStamp(new Date()),
+  };
+  await writeFile(
+    gatePath(projectRoot, project, kind),
+    `${JSON.stringify(state, null, 2)}\n`,
+    "utf8",
+  );
+  return state;
+}
+/** 只读状态：版本列表、当前产出文件数、任务进度、最新日志标题、主题与闸门状态。 */
 export async function readArtifactState(
   projectRoot: string,
   project: string,
@@ -246,6 +293,7 @@ export async function readArtifactState(
   return {
     currentFileCount: await countFiles(join(directory, CURRENT_DIR)),
     directory: toPattern(projectRoot, directory),
+    gate: await readGateState(projectRoot, project, kind),
     kind,
     latestEntry: latestEntryTitle(changelog) ?? null,
     project,

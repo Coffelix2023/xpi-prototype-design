@@ -30,7 +30,9 @@
 | 任务清单 (tasks.md) | 阶段内的任务与进度账本，一行一个任务，checkbox 即状态。 | 执行腿唯一的事实来源；`parseTaskProgress` 只数方框，不解析正文 |
 | 任务进度 (task progress) | `完成数 / 总数`，由 `tasks.md` 的 checkbox 数出。 | `prototype_status` 显示为 `任务 2/7`；null 表示计划还没落盘 |
 | 跳过 (skipped) | 任务行保留但行尾标 `⏭ skipped: <原因>`。 | 仍算未完成，不许删行——删行等于伪造完成 |
-| 计划闸门 (plan gate) | 深挖结束后、首次产出前的一次三选一确认：仅保存，稍后执行（默认首选）/ 保存后立即执行 / 还有需要补充的。 | 见 `SKILL.md` §5.1；停止提问不等于开始产出
+| 计划闸门 (plan gate) | 首次产出前的一次三选一确认：仅保存计划，稍后执行（默认首选）/ 保存后立即执行 / 还有需要补充的。 | 见 `SKILL.md` §5.1；卡由 `prototype_gate` 弹出，顺序是「先展示、再问、最后落盘」 |
+| 闸门答案 (gate answer) | `gate.json` 里的 `save` / `execute` / `more`，由用户在卡上选定。 | 闭集见 `GATE_ANSWERS`；只有 `execute` 放行 `current/`
+| 闸门记录 (gate record) | 阶段根的 `gate.json`：用户的选择 + 采集时间。 | 由 `prototype_gate` 写；`tool_call` 门禁读它，`prototype_status` 显示它 |
 
 ## 避免用词 (Banned Synonyms)
 
@@ -38,6 +40,7 @@
 - 用「模式」指 `Mode` 闭集：不要与「阶段」混用——`execute` / `update` / `archive` 是模式但不是阶段。
 - 用「规划腿 / 执行腿」指两段流程：不要写「第一步 / 第二步」，那不是顺序而是两段可分开发生的会话。
 - 用「任务清单」指 `tasks.md`：不要写「TODO / checklist 文件」；计划闸门只保存它，不代替它。
+- 用「闸门记录」指阶段根的 `gate.json`：不要写「审批文件 / approval flag」——它是用户选择的落盘，不是模型的自我声明。
 - 用「项目」指产物目录第一层的 slug：不要写「设计稿 / 工程 / workspace」。
 - 用「归档」指移进 `archive/`：不要写「删除 / 下线」——它是可逆移动，不是销毁。
 - 用「快照」指 `vN` 目录复制：不要写「备份 / checkpoint」。

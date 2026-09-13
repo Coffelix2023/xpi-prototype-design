@@ -1,11 +1,13 @@
 /**
- * tools — 暴露给模型的四个工具。
+ * tools — 暴露给模型的五个工具。
  *
  * 只读与变更严格分离（见 AGENTS.md §4）：
  *   prototype_setup     变更，幂等：建目录骨架、补 THEMES.md
  *   prototype_snapshot  变更：存版本 + 写 CHANGELOG
  *   prototype_preview   变更：用系统默认浏览器打开产物
  *   prototype_status    只读：绝不写盘
+ *
+ * 第五个 prototype_gate 与 tool_call 门禁在 gate.ts；它复用本模块的 kind/project schema。
  *
  * 产物根固定为 ctx.cwd，模型无法指定任意文件系统根目录；
  * `project` 是信任边界，schema 与 artifacts.ts 各校验一次。
@@ -22,6 +24,8 @@ import {
   snapshotArtifact,
 } from "./artifacts.js";
 import {
+  type ArtifactState,
+  gateLabel,
   KINDS,
   type Kind,
   PROJECT_SLUG_PATTERN,
@@ -32,7 +36,8 @@ import { openInSystemBrowser } from "./preview.js";
 /** 工具输出上限；超出截断，保证回灌上下文有界。 */
 const MAX_OUTPUT = 2_000;
 
-const kindSchema = Type.Enum(KINDS, {
+/** 阶段 schema；gate.ts 复用同一份，避免两处漂移。 */
+export const kindSchema = Type.Enum(KINDS, {
   description: "设计阶段：wireframe（线框）或 hifi（高保真）。",
 });
 
@@ -40,7 +45,7 @@ const kindSchema = Type.Enum(KINDS, {
  * 项目 slug。schema 层先挡一道，`artifacts.ts` 再挡一道——它是信任边界。
  * pattern 与 `PROJECT_SLUG_PATTERN` 同源，避免两处规则漂移。
  */
-const projectSchema = Type.String({
+export const projectSchema = Type.String({
   description:
     "项目 slug，小写 kebab-case，例如 subscription-page。同一设计项目的 wireframe 与 hifi 必须用同一个 slug。",
   pattern: PROJECT_SLUG_PATTERN.source,
@@ -48,6 +53,19 @@ const projectSchema = Type.String({
 
 function line(text: string): string {
   return text.slice(0, MAX_OUTPUT);
+}
+
+/**
+ * 闸门状态那一行。
+ *
+ * 有版本就不再拦（钩子按同一条判据放行），所以这里写「不再拦」而不是留个空答案，
+ * 免得读者以为阶段还卡在闸门上。
+ */
+function gateLine(state: ArtifactState): string {
+  if (state.versions.length > 0) return "不再拦（阶段已产出）";
+  return state.gate
+    ? gateLabel(state.gate.answer)
+    : "未确认（写 current/ 会被挡，先调 prototype_gate）";
 }
 
 function list(values: readonly string[]): string {
@@ -73,6 +91,7 @@ export async function describeState(
     `  版本: ${versions}`,
     `  当前产出文件: ${state.currentFileCount}`,
     `  任务: ${taskLabel(state.tasks)}`,
+    `  闸门: ${gateLine(state)}`,
     `  最新记录: ${state.latestEntry ?? "无"}`,
     `  THEMES.md: ${state.themesPresent ? "已就位" : "缺失（调用 prototype_setup 补齐）"}`,
   ].join("\n");
@@ -125,7 +144,7 @@ export function registerPrototypeTools(pi: ExtensionAPI): void {
           `已就绪：${result.directory}`,
           `本次新建文档：${list(result.createdDocs)}`,
           `${result.themesPath}：${result.themesStatus === "created" ? "已从扩展模板创建" : "已存在，未改动"}`,
-          "下一步：按 skills/xpi-prototype-design/SKILL.md 深挖需求，结论写进 plan.md、任务清单写进 tasks.md；过了计划闸门再产出到 current/。",
+          "下一步：按 skills/xpi-prototype-design/SKILL.md 深挖需求，先在聊天里展示结论；确认后才写 plan.md 与 tasks.md。写盘前必须调 prototype_gate 让用户做三选一确认——没选「保存后立即执行」之前，写 current/ 会被 tool_call 钩子挡回。",
         ].join("\n"),
       );
       return {

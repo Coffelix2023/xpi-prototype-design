@@ -43,6 +43,8 @@ function harness(): Harness {
       tools.push(tool);
     },
     sendUserMessage,
+    // 闸门注册了 tool_call 钩子；这里只要它存在，钩子行为由 gate.test.ts 覆盖。
+    on: vi.fn(),
   } as unknown as ExtensionAPI;
   register(pi);
   return {
@@ -89,11 +91,12 @@ afterEach(async () => {
 });
 
 describe("extension registration", () => {
-  it("exposes one command with the six modes plus four tools", () => {
+  it("exposes one command with the six modes plus five tools", () => {
     const { commands, tools } = harness();
     const command = commands.get("xpi-prototype-design");
     expect(command).toBeDefined();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "prototype_gate",
       "prototype_preview",
       "prototype_setup",
       "prototype_snapshot",
@@ -539,6 +542,10 @@ describe("tool schemas", () => {
       required: boolean;
     }
   > = {
+    prototype_gate: {
+      extra: {},
+      required: true,
+    },
     prototype_preview: {
       extra: {},
       required: true,
@@ -567,7 +574,7 @@ describe("tool schemas", () => {
     "Upper",
   ];
 
-  it("registers exactly the four tools", () => {
+  it("registers exactly the five tools", () => {
     const { tools } = harness();
     expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(extras).sort());
   });

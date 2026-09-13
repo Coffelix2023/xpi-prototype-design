@@ -67,17 +67,22 @@ Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`).
 
 ### Progressive by design: a planning leg and an execution leg
 
-A prototype is not "answer the questions and start drawing". Once discovery (3 rounds × 3 questions) ends, the agent writes its conclusions to two files — `plan.md` (the requirement record) and `tasks.md` (the task list with progress) — and **then stops**, offering one three-way card:
+A prototype is not "answer the questions and start drawing". The order is rigid, and it mirrors `xpi-fast-fix`: **show it in chat, ask, and only then write to disk**.
+
+1. When discovery (3 rounds × 3 questions) ends, the agent shows the full `plan.md` content and the `tasks.md` list in chat — that step sends a message and writes nothing;
+2. It calls `prototype_gate`, and the **extension** — not the model — raises the three-way card and records your choice in `gate.json` at the stage root;
+3. It writes to disk according to that choice:
 
 | Option | Outcome |
 | --- | --- |
-| Save only, execute later (default, listed first) | The planning leg ends here: report the two paths and a task summary, produce nothing |
-| Save, then execute now | This round continues into the task list |
-| Something still needs filling in | The agent asks which part is missing, then returns to the same card |
+| Save only, execute later (default, listed first) | `plan.md` + `tasks.md` are written and the planning leg ends there; nothing lands in `current/` |
+| Save, then execute now | Both files are written, then this round continues into the task list |
+| Something still needs filling in | Nothing is written or produced: the agent asks which part is missing, then asks again |
 
+Until `gate.json` says `execute`, every call that writes under `<stage>/current/` is **blocked outright** by a `tool_call` hook, with the reason handed back to the model. The gate is not "remind the model to ask" — it is an executable door, and that is what separates it from the two earlier prompt-only attempts. When no dialog can be raised (print / json modes), the same record is filled through `ask_user_question` plus a `prototype_gate` call that carries the answer.
 After choosing "Save only", `/xpi-prototype-design execute` returns to that leg at any time: the picker lists only stages that **have a task list**, with progress attached (e.g. `subscription-page / wireframe · v1 · 3 files · 任务 2/7`), and the agent resumes from the first unfinished task without re-running discovery or asking for the requirement again.
 
-Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`.
+Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`, plus a gate line (`gate.json`'s answer, or "no snapshot yet, unconfirmed").
 
 Omit the requirement and a multi-line requirement dialog appears: what you type rides along with the command, submitting with an empty buffer starts the round with no requirement, and Esc abandons it. Submit and newline follow your own `tui.input.submit` / `tui.input.newLine` keybindings — including `alt+enter` on terminals that cannot send it as a distinct sequence (Zed, Alacritty, Terminal.app), where Pi's built-in extension editor would turn it into a newline instead. Only the run modes without dialogs (print / json) skip the dialog and send straight away. `execute` is the exception: it resumes a plan already on disk and **never opens the dialog**. See [`docs/memo-terminal-keybindings.md`](./docs/memo-terminal-keybindings.md) for the whole chain.
 
@@ -91,6 +96,9 @@ The command never creates directories: the project slug is decided by the agent 
 | `prototype_snapshot` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry | Refuses when `current/` is empty |
 | `prototype_status` | One `(project, kind)`; every live one when `project` is omitted | Nothing | Never writes |
 | `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
+| `prototype_gate` | `gate.json` at the stage root | Raises the three-way card and records the choice; `mode: "resume"` unlocks a stage that answered "save only" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record |
+
+The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets `<stage>/current/**` and that stage has neither a snapshot nor an `execute` answer in `gate.json`, the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
 `project` is a trust boundary: it must match `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`, validated twice (tool schema and `artifacts.ts`). Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the model. Tool output is capped at 2000 characters.
 
@@ -104,6 +112,7 @@ The command never creates directories: the project slug is decided by the agent 
     │   └── <kind>/                    # wireframe | hifi
     │       ├── plan.md                # requirements; overwritten each round
     │       ├── tasks.md               # task list and progress; the execution leg's single source of truth
+    │       ├── gate.json              # the user's plan-gate answer; current/ stays locked until it says execute
     │       ├── principles.md          # hard constraints for the stage
     │       ├── DELTA.md               # hifi only: deviations from the wireframe
     │       ├── CHANGELOG.md           # reverse-chronological, newest first
@@ -159,7 +168,8 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
     ├── artifacts.ts           # fs: setup, snapshot, state, preview target
     ├── preview.ts             # OS-default-browser launcher
     ├── requirement-editor.ts  # requirement dialog: submit key wins over newline
-    └── tools.ts               # the four registered tools
+    ├── tools.ts               # the four read/write tools
+    └── gate.ts                # plan gate: the fifth tool + the current/ write block
 ```
 
 ## Design baseline
