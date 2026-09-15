@@ -2,9 +2,8 @@
 
 **English** · [简体中文](./README.zh-CN.md)
 
-**A Pi Coding Agent extension that turns design discussions into versioned, reviewable prototype artifacts.**
-
-**把设计讨论落成可版本化、可评审的原型产物的 Pi Coding Agent 扩展。**
+**[Pi-Extension] One-Commander turns design discussions into versioned, reviewable prototype artifacts.**
+**PI扩炸: 一个斜杠命令把设计讨论落成可版本化、可评审的原型产物。**
 
 <!-- TODO: add a LICENSE file (MIT) — the badge below links to it -->
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
@@ -15,7 +14,7 @@
 
 ## Why
 
-While the design conversation is in the chat it is fine; the moment it ends, nobody can tell which revision was approved. A wireframe gets signed off, the high-fidelity pass quietly drops a CTA, and the only record is scrollback. This extension keeps the loop on disk, inside the project, and versioned: structured discovery rounds land in a `plan.md`, output goes into a `current/` working copy, and every round is snapshotted to `vN/` with a rollback command recorded in one reverse-chronological `CHANGELOG.md`. Theme tokens come from a `THEMES.md` that the extension scaffolds once and never overwrites.
+While the design conversation is in the chat it is fine; the moment it ends, nobody can tell which revision was approved. A wireframe gets signed off, the high-fidelity pass quietly drops a CTA, and the only record is scrollback. This extension keeps the loop on disk, inside the project, and versioned: a product map holds stable page ids, structured discovery rounds land in a page's `plan.md`, output goes into its `current/` working copy, and every round is snapshotted to `vN/` with a rollback command recorded in one reverse-chronological `CHANGELOG.md`. Theme tokens come from a `THEMES.md` that the extension scaffolds once and never overwrites.
 
 Every extension in this repository starts from the same four rules:
 
@@ -68,6 +67,20 @@ Only the bare entry is user-facing. The modes above are an internal compatibilit
 
 Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all six internal modes and Tab picks one — there is no mode menu, and Enter prints the usage table.
 
+### The unified entry
+
+The bare command starts the orchestration Skill, which asks one structured question per step and never makes you type an internal mode or a `--*` flag:
+
+1. **Goal** — create, continue, advance, review, archive, or migrate an existing prototype.
+2. **Product** — read `prototype_status` and pick or confirm the product project; the product map is the source of truth for page identity.
+3. **Page scope** (optional) — pick one or more page ids, shown with their name, implementation, fidelity, route and directly affected pages. Unregistered pages cannot become write targets; a single-page product or a legacy project-level stage skips this step.
+4. **Action** — read, create, revise, advance, preview, or roll back.
+5. **Fidelity transition** — state the current and target `none` / `wireframe` / `prototype` / `hifi`. Changing fidelity never changes a page id or a declared link.
+6. **Scope summary** — current state, planned changes, affected pages and exclusions. A shared-navigation or link-contract change must confirm the complete affected set.
+7. **Gate** — cancelling writes nothing; save / execute / supplement / resume follow the rules below, and every write is bound to the confirmed page scope.
+
+Choosing "migrate" at step 1 hands off to the migration Skill instead — see [Migration](#migration).
+
 ### Product and page model
 
 A product project is the container; a **page** is the thing you actually operate on. Each product keeps a product map at `<cwd>/.pi/prototype-design/<product>/product-map.json`.
@@ -82,6 +95,16 @@ A product project is the container; a **page** is the thing you actually operate
 - Page artifacts live under `<product>/pages/<page-id>/<kind>/` with the same `plan.md` / `tasks.md` / `gate.json` / `current/` / `vN/` layout as a project-level stage. Planning, gates, snapshots, changelog entries and rollback targets are scoped to one page; a single-page operation cannot silently authorize its siblings.
 - Preview resolves through a page id (or a product-flow entry). A multi-page product never falls back to "first HTML by file name".
 - Changing shared navigation or a link contract must list every affected page up front: `prototype_page_impact` computes that set and reports an incomplete scope instead of guessing.
+
+| Operation | Scope |
+| --- | --- |
+| `plan.md` / `tasks.md` | one page stage |
+| `prototype_gate` + `gate.json` | one page stage, or a project-level stage while no product map exists |
+| `prototype_snapshot` + `vN/` + `CHANGELOG.md` + rollback | one page stage |
+| `prototype_preview` | one page — a multi-page product requires `pageId` or `flow` |
+| shared navigation / link-contract change | every page in `prototype_page_impact`'s affected set |
+
+### Legacy stage-based artifacts
 
 Existing stage-based artifacts (`<project>/<kind>/`) stay readable: `prototype_status` still reports them, historical `vN/` snapshots are untouched, and nothing is migrated or deleted automatically. Migration is the only path that moves legacy assets, and it is read-only on the source.
 
@@ -99,7 +122,7 @@ A prototype is not "answer the questions and start drawing". The order is rigid,
 | Save, then execute now | Both files are written, then this round continues into the task list |
 | Something still needs filling in | Nothing is written or produced: the agent asks which part is missing, then asks again |
 
-Until `gate.json` holds an `execute` for **this round**, every call that writes under `<stage>/current/` is **blocked outright** by a `tool_call` hook, with the reason handed back to the model. Consent is per round: the record carries the version count at the moment the card was answered, every `prototype_snapshot` expires it, and the next round asks again — the first card approved a plan, which says nothing about how far a later one-line request may expand. The gate is not "remind the model to ask" — it is an executable door, and that is what separates it from the two earlier prompt-only attempts. When no dialog can be raised (print / json modes), the same record is filled through `ask_user_question` plus a `prototype_gate` call that carries the answer.
+Until `gate.json` holds an `execute` for **this round**, every call that writes under a stage's `current/` — project-level `<product>/<kind>/` or page-level `<product>/pages/<page-id>/<kind>/` — is **blocked outright** by a `tool_call` hook, with the reason handed back to the model. Consent is per round: the record carries the version count at the moment the card was answered, every `prototype_snapshot` expires it, and the next round asks again — the first card approved a plan, which says nothing about how far a later one-line request may expand. The gate is not "remind the model to ask" — it is an executable door, and that is what separates it from the two earlier prompt-only attempts. When no dialog can be raised (print / json modes), the same record is filled through `ask_user_question` plus a `prototype_gate` call that carries the answer.
 After choosing "Save only", `/xpi-prototype-design execute` returns to that leg at any time: the picker lists only stages that **have a task list**, with progress attached (e.g. `subscription-page / wireframe · v1 · 3 files · 任务 2/7`), and the agent resumes from the first unfinished task without re-running discovery or asking for the requirement again.
 
 Each line in `tasks.md` is a checkable ledger entry: `- [ ] 1.2 Empty state (acceptance:…;output:…)`, `⏳ in_progress` while underway, and a tick plus one verification sub-line when done. `prototype_status` reports the same progress as `任务 2/7`, plus a gate line (`gate.json`'s answer, or "no snapshot yet, unconfirmed").
@@ -112,16 +135,16 @@ The command never creates directories: the project slug is decided by the agent 
 
 | Tool | Reads | Changes | Refuses |
 | --- | --- | --- | --- |
-| `prototype_setup` | `<cwd>/.pi/prototype-design/<project>/<kind>/`, `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; copies the bundled `THEMES.md` when absent | Never overwrites an existing document or `THEMES.md` |
-| `prototype_snapshot` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry | Refuses when `current/` is empty |
-| `prototype_status` | One `(project, kind)`; every live one when `project` is omitted | Nothing | Never writes |
-| `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
-| `prototype_gate` | `gate.json` at the stage root | Raises the card (three-way on the first round, two-way afterwards) and records both the choice and its baseline; `mode: "resume"` unlocks a stage that answered "save only" / "show me the change list" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record for the current round |
+| `prototype_setup` | A project-level stage or one page stage (`pageId`), plus `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; copies the bundled `THEMES.md` when absent | Never overwrites an existing document or `THEMES.md`; a shared-contract change must name the complete affected set (`sharedContract` + `affectedPageIds`) |
+| `prototype_snapshot` | `current/` of the selected stage, project-level or one `pageId` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry; the returned rollback command targets that page's previous `vN` | Refuses when `current/` is empty; refuses an incomplete affected-page set for a shared-contract change |
+| `prototype_status` | One `(project, kind)`, or one page stage with `pageId`; every live stage when `project` is omitted | Nothing | Never writes |
+| `prototype_preview` | `current/` of the selected stage or page | Opens the file in the OS default browser | Refuses any path outside `current/`; in a multi-page product it refuses to guess and demands `pageId` or `flow` |
+| `prototype_gate` | `gate.json` at the stage root (`pageId` selects a page stage) | Raises the card (three-way on the first round, two-way afterwards) and records both the choice and its baseline, plus the page scope in the summary; `mode: "resume"` unlocks a stage that answered "save only" / "show me the change list" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record for the current round |
 | `prototype_page_impact` | The product map and its reverse link references | Nothing (read-only) | Reports the missing pages instead of accepting an incomplete scope for a shared-contract change |
 | `prototype_migration_scan` | Explicitly selected legacy files or directories **inside** the project root | Nothing (read-only); `href` / `src` are read, never rewritten | Refuses any source outside the project root, and any path traversal |
 | `prototype_migration_execute` | The same sources plus user-confirmed `decisions` | Copies into `<product>/pages/<page-id>/<kind>/current/`, registers the pages in the product map, writes a migration report | Writes nothing unless the plan has zero unresolved items **and** `confirm` is true; never overwrites an existing target |
 
-The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets `<stage>/current/**` and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
+The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets a stage's `current/**` — project-level or page-level — and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
 `project` is a trust boundary: it must match `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`, validated twice (tool schema and `artifacts.ts`). Every path derives from `ctx.cwd`; no tool accepts a filesystem root from the model. Tool output is capped at 2000 characters.
 
