@@ -329,12 +329,16 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
   registerPrototypeGate(pi);
 
   pi.registerCommand("xpi-prototype-design", {
-    description: "原型设计流程：wireframe / hifi / execute / update / archive",
+    description:
+      "统一原型设计入口：按目标、产品、页面范围和动作逐步编排。旧内部模式仍受控兼容。",
     getArgumentCompletions: completions,
     handler: async (args, ctx) => {
       const parsed = parseCommandArgs(args);
-      // 不写子命令等于 help：没有面板可弹，也不该静默什么都不做。
-      const mode = parsed.mode ?? "help";
+      if (parsed.mode === undefined) {
+        await fire(pi, ctx, "orchestrate", parsed.rest);
+        return;
+      }
+      const mode = parsed.mode;
 
       if (mode === "help") {
         printUsage(ctx);

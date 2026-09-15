@@ -494,7 +494,9 @@ export async function archiveProject(
 /**
  * 只读探测旧布局：`<cwd>/.pi/prototype-design/<kind>/`（没有项目层）。
  *
- * 只报告，绝不搬迁——迁移是破坏性操作，且本仓无存量数据可供验证。
+ * 只报告，绝不搬迁——搬迁是破坏性操作，只有用户明确指定的来源才会被读取。
+ * 需要纳入页面模型时走 `xpi-prototype-migration`：先 `prototype_migration_scan` 只读扫描，
+ * 用户逐项确认待决项后才 `prototype_migration_execute` 复制。
  * 注意 `wireframe` / `hifi` 在新布局下也是合法项目名，因此这里只是提示，不是判定。
  */
 export async function detectLegacyLayout(projectRoot: string): Promise<Kind[]> {

@@ -349,6 +349,38 @@ describe("archiveProject", () => {
   });
 });
 
+describe("stage-based compatibility", () => {
+  it("keeps project-level snapshots readable once a product map appears", async () => {
+    await produce(PROJECT, "wireframe", "<svg>v1</svg>");
+    const snap = await snapshotArtifact(root, PROJECT, "wireframe", {
+      change: "首版",
+    });
+    await writeFile(
+      join(root, ".pi/prototype-design", PROJECT, "product-map.json"),
+      JSON.stringify({
+        pages: [],
+        product: PROJECT,
+        version: 1,
+      }),
+      "utf8",
+    );
+
+    // 旧阶段仍被 status/list 读到，历史 v1 一字未改。
+    expect((await readArtifactState(root, PROJECT, "wireframe")).versions).toEqual([
+      1,
+    ]);
+    expect(
+      await readFile(join(stage(PROJECT, "wireframe"), "v1/index.html"), "utf8"),
+    ).toBe("<svg>v1</svg>");
+    expect(
+      (await listProjects(root)).some(
+        (item) => item.project === PROJECT && item.kind === "wireframe",
+      ),
+    ).toBe(true);
+    await expect(stat(join(root, snap.versionPath))).resolves.toBeTruthy();
+  });
+});
+
 describe("detectLegacyLayout", () => {
   it("reports the old top-level stage directories without moving them", async () => {
     await mkdir(join(root, ".pi/prototype-design/wireframe"), {

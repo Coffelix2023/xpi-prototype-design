@@ -1,11 +1,14 @@
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setupArtifacts } from "./artifacts.js";
-import { describeOverview, describeState } from "./tools.js";
+import { writeProductMap } from "./product-map.js";
+import { describeOverview, describeState, registerPrototypeTools } from "./tools.js";
 
+const MULTI_PAGE_REFUSAL = /Multi-page products require pageId or flow/;
+const UNKNOWN_PAGE = /Unknown product page/;
 let root = "";
 
 function ctx(): ExtensionContext {
@@ -71,7 +74,8 @@ describe("describeOverview", () => {
     });
     const joined = (await describeOverview(ctx())).join("\n");
     expect(joined).toContain("检测到旧布局");
-    expect(joined).toContain("不自动迁移");
+    expect(joined).toContain("只被读取");
+    expect(joined).toContain("prototype_migration_scan");
     await expect(
       stat(join(root, ".pi/prototype-design/wireframe")),
     ).resolves.toBeTruthy();
@@ -84,5 +88,85 @@ describe("describeState", () => {
     expect(await describeState(ctx(), "subscription-page", "hifi")).toContain(
       ".pi/prototype-design/subscription-page/hifi",
     );
+  });
+});
+
+/**
+ * 预览的拒绝路径。只测会抛错的分支：真的放行会去调系统浏览器，测试里不能碰。
+ */
+describe("prototype_preview guards", () => {
+  type PreviewHandler = (
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: unknown,
+    onUpdate: unknown,
+    ctx: ExtensionContext,
+  ) => Promise<unknown>;
+
+  function previewTool(): PreviewHandler {
+    let handler: PreviewHandler | undefined;
+    registerPrototypeTools({
+      registerTool: (tool: { execute: PreviewHandler; name: string }) => {
+        if (tool.name === "prototype_preview") handler = tool.execute;
+      },
+    } as unknown as ExtensionAPI);
+    if (!handler) throw new Error("prototype_preview was not registered");
+    return handler;
+  }
+
+  const twoPages = {
+    product: "checkout",
+    version: 1 as const,
+    pages: [
+      {
+        fidelity: "wireframe" as const,
+        id: "home",
+        implementation: "prototype" as const,
+        name: "首页",
+      },
+      {
+        fidelity: "hifi" as const,
+        id: "done",
+        implementation: "prototype" as const,
+        name: "完成",
+      },
+    ],
+  };
+
+  it("refuses to guess a page in a multi-page product", async () => {
+    await writeProductMap(root, "checkout", twoPages);
+    const preview = previewTool();
+
+    await expect(
+      preview(
+        "call",
+        {
+          kind: "wireframe",
+          project: "checkout",
+        },
+        undefined,
+        undefined,
+        ctx(),
+      ),
+    ).rejects.toThrow(MULTI_PAGE_REFUSAL);
+  });
+
+  it("rejects an unknown page id instead of falling back to a file", async () => {
+    await writeProductMap(root, "checkout", twoPages);
+    const preview = previewTool();
+
+    await expect(
+      preview(
+        "call",
+        {
+          kind: "wireframe",
+          pageId: "nope",
+          project: "checkout",
+        },
+        undefined,
+        undefined,
+        ctx(),
+      ),
+    ).rejects.toThrow(UNKNOWN_PAGE);
   });
 });

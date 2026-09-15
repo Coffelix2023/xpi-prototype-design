@@ -39,7 +39,8 @@ import {
   iterationGateLabel,
   type Kind,
 } from "./contracts.js";
-import { kindSchema, projectSchema } from "./tools.js";
+import { readPageArtifactState, writePageGateState } from "./page-artifacts.js";
+import { describeState, kindSchema, projectSchema } from "./tools.js";
 
 /** 答案对应的下一步。写给模型看，逐句可执行。 */
 const AFTER_ANSWER: Record<GateAnswer, string> = {
@@ -91,7 +92,6 @@ export function gateBlocksWrite(state: {
 }
 
 const ARTIFACT_ROOT_PARTS = ARTIFACT_ROOT.split("/");
-const CURRENT_INDEX = ARTIFACT_ROOT_PARTS.length + 2;
 
 /**
  * 从写入目标反查 `(project, kind)`。
@@ -105,21 +105,35 @@ export function stageOfCurrentPath(
 ): {
   kind: Kind;
   project: string;
+  pageId?: string;
 } | null {
   const relativePath = relative(resolve(cwd), resolve(target));
   if (relativePath.length === 0 || relativePath.startsWith("..")) return null;
   const parts = relativePath.split(sep);
-  if (parts.length <= CURRENT_INDEX) return null;
   for (const [index, part] of ARTIFACT_ROOT_PARTS.entries()) {
     if (parts[index] !== part) return null;
   }
   const project = parts[ARTIFACT_ROOT_PARTS.length];
-  const kind = parts[ARTIFACT_ROOT_PARTS.length + 1];
-  if (!isValidProjectSlug(project) || !isKind(kind)) return null;
-  if (parts[CURRENT_INDEX] !== CURRENT_DIR) return null;
+  if (!isValidProjectSlug(project)) return null;
+  const next = parts[ARTIFACT_ROOT_PARTS.length + 1];
+  if (isKind(next) && parts[ARTIFACT_ROOT_PARTS.length + 2] === CURRENT_DIR)
+    return {
+      kind: next,
+      project,
+    };
+  if (next !== "pages") return null;
+  const pageId = parts[ARTIFACT_ROOT_PARTS.length + 2];
+  const kind = parts[ARTIFACT_ROOT_PARTS.length + 3];
+  if (
+    !isValidProjectSlug(pageId) ||
+    !isKind(kind) ||
+    parts[ARTIFACT_ROOT_PARTS.length + 4] !== CURRENT_DIR
+  )
+    return null;
   return {
     kind,
     project,
+    pageId,
   };
 }
 
@@ -202,7 +216,8 @@ async function askGate(
   }
   const written = await writeGateState(ctx.cwd, project, kind, picked.answer);
   const label = iteration ? iterationGateLabel(picked.answer) : picked.label;
-  return `${label}（已记录 → gate.json，${written.at}，本轮基线 v${written.baseline}）\n${afterAnswer(picked.answer, iteration)}`;
+  const summary = await describeState(ctx, project, kind);
+  return `${label}（已记录 → gate.json，${written.at}，本轮基线 v${written.baseline}）\n\n范围摘要:\n${summary}\n\n${afterAnswer(picked.answer, iteration)}`;
 }
 
 /**
@@ -228,6 +243,31 @@ async function resumeGate(
 }
 
 export function registerPrototypeGate(pi: ExtensionAPI): void {
+  async function askPageGate(
+    ctx: ExtensionContext,
+    project: string,
+    pageId: string,
+    kind: Kind,
+    fallbackAnswer: GateAnswer | undefined,
+  ): Promise<string> {
+    const state = await readPageArtifactState(ctx.cwd, project, pageId, kind);
+    const choices = state.versions.length > 0 ? ITERATION_CHOICES : GATE_CHOICES;
+    const selected = ctx.hasUI
+      ? await ctx.ui.select(
+          `xpi-prototype-design：${project} / ${pageId} / ${kind} 的本轮范围`,
+          choices.map((choice) => choice.label),
+        )
+      : undefined;
+    const picked = selected
+      ? choices.find((choice) => choice.label === selected)?.answer
+      : fallbackAnswer;
+    if (!picked || !choices.some((choice) => choice.answer === picked))
+      return "用户取消了页面闸门：停在这里，不写入该页面。";
+    const written = await writePageGateState(ctx.cwd, project, pageId, kind, picked);
+    const summary = await describeState(ctx, project, kind, pageId);
+    return `${gateLabel(picked)}（已记录页面 ${pageId} → gate.json，${written.at}，基线 v${written.baseline}）\n\n范围摘要:\n${summary}`;
+  }
+
   pi.registerTool({
     description:
       "计划闸门：由扩展自己弹卡采集**用户**的答复，写进 <stage>/gate.json，许可只对「本轮」有效。首轮（阶段还没有 vN）弹三选一：仅保存 / 保存后立即执行 / 还有需要补充的；迭代轮（已有 vN）弹二选一：现在就开始改 / 先给改动清单。没有本轮的 execute 记录之前，任何写入 <stage>/current/ 的调用都会被 tool_call 钩子硬阻断。mode=resume 用于用户在聊天里明确说「开始执行」之后的续跑；无对话框模式（print / json）用 answer 回填用户答复。",
@@ -260,13 +300,25 @@ export function registerPrototypeGate(pi: ExtensionAPI): void {
           },
         ),
       ),
+      pageId: Type.Optional(
+        Type.String({
+          description: "页面地图中的稳定 page ID；提供后闸门仅作用于该页面阶段。",
+        }),
+      ),
       project: projectSchema,
     }),
     promptSnippet:
       "Ask the user to approve this round's scope (plan gate) and record the answer.",
     execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
-      const text =
-        params.mode === "resume"
+      const text = params.pageId
+        ? await askPageGate(
+            ctx,
+            params.project,
+            params.pageId,
+            params.kind,
+            params.answer,
+          )
+        : params.mode === "resume"
           ? await resumeGate(ctx, params.project, params.kind)
           : await askGate(ctx, params.project, params.kind, params.answer);
       return {
@@ -290,7 +342,9 @@ export function registerPrototypeGate(pi: ExtensionAPI): void {
     if (target === null) return undefined;
     const stage = stageOfCurrentPath(ctx.cwd, target);
     if (stage === null) return undefined;
-    const state = await readArtifactState(ctx.cwd, stage.project, stage.kind);
+    const state = stage.pageId
+      ? await readPageArtifactState(ctx.cwd, stage.project, stage.pageId, stage.kind)
+      : await readArtifactState(ctx.cwd, stage.project, stage.kind);
     if (!gateBlocksWrite(state)) return undefined;
     return {
       block: true,

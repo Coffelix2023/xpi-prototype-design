@@ -6,30 +6,49 @@ license: MIT
 
 # xpi-prototype-design
 
-六个子命令，两段腿（规划腿 → 执行腿），一套版本机制。其中 `help`（以及不带任何子命令的裸回车）只打印用法表，**永远不经过你**；剩下五个模式见下表。产物按**项目**组织，每个项目下再分阶段：
+统一入口只有 `/xpi-prototype-design [需求]`。裸入口启动本编排 Skill；用户不需要输入 `wireframe`、`hifi`、`execute`、`update`、`archive` 或任何 `--*` 参数。旧模式仅作为内部兼容分派，不作为用户流程。
+
+## 1. 统一编排流程
+
+Agent 按以下顺序使用结构化问题，已从产品地图或仓库读到的信息不重复询问：
+
+1. **目标**：创建、继续、推进、评审、归档或**迁移已有原型/线框**。选到「迁移」就改用 `xpi-prototype-migration`，不要走本 Skill 的设计流程。
+2. **产品**：读取 `prototype_status`，选择或确认产品项目；产品地图是稳定页面身份的事实来源。
+3. **页面范围**（可选）：选择一个或多个 page ID，显示名称、实现来源、保真度、路由和直接影响页面；未登记页面不能成为写入目标。单页面产品或阶段兼容视图可跳过此步。
+4. **动作**：读取、创建、修改、推进、预览或回滚。
+5. **保真度变化**：明确 none / wireframe / prototype / hifi 的当前状态与目标状态；改变保真度不能改变 page ID 或稳定链接。
+6. **范围摘要**：展示当前状态、计划变更、受影响页面和排除项；共享导航或链接契约变化必须确认完整受影响集合。
+7. **闸门**：取消不写盘；保存、执行、补充和 resume 语义遵循第 5.1 节，写入必须绑定确认的页面范围。
+
+产品地图最小布局：
 
 ```text
-<cwd>/.pi/prototype-design/<project>/<kind>/
+<cwd>/.pi/prototype-design/<product>/product-map.json
+<cwd>/.pi/prototype-design/<product>/pages/<page-id>/<kind>/current/
 ```
 
-## 1. 模式与参数（你收到的就是这个）
+| 维度 | 可用值 |
+| :--- | :--- |
+| implementation | production / prototype / external / placeholder |
+| fidelity | none / wireframe / prototype / hifi |
 
-| 模式 | 参数 | 谁执行 |
+页面预览必须传稳定 page ID 或产品流入口。多页面产品禁止按 HTML 文件名排序选择默认页面。
+
+### 1.1 迁移（独立动作，与页面设计互斥）
+
+迁移把用户明确指定的旧原型/线框搬进页面模型。来源只读，目标只允许 `.pi/prototype-design/`
+下，已存在的目标绝不覆盖；用户明确给出来源之前不扫描任何目录。
+
+| 顺序 | 工具 | 说明 |
 | :--- | :--- | :--- |
-| `wireframe` | `[需求]` | 你 |
-| `hifi` | `[--based-on <project>] [需求]` | 你 |
-| `execute` | `--project <slug> --kind <wireframe\|hifi> [备注]` | 你 |
-| `update` | `--project <slug> --kind <wireframe\|hifi> [--scope quick\|plan] [需求]` | 你 |
-| `archive` | 无 | **命令层直接执行，不经过你** |
+| 1 | `prototype_migration_scan { sources }` | 只读扫描，产出页面/链接/资源/实现来源/保真度计划与全部待决项 |
+| 2 | 用户逐项决定 | 待决项（pageId / implementation / fidelity / target / 资源归属）必须由用户确认 |
+| 3 | `prototype_migration_execute { project, sources, decisions, confirm: true }` | 执行、登记产品地图、跑链接与最小渲染校验、写迁移报告 |
 
-命令层的职责边界（不要越界重做）：
-
-- 它**不建目录**。项目 slug 由你在深挖后决定，命令层不猜，避免猜错后留下空目录。
-- 它**不读产物状态**。要知道现状，自己调 `prototype_status`。
-- `archive` 是纯文件操作（`rename` 到 `archive/` + 写归档日志），命令层做完即结束，**不会**给你发消息。所以正常情况下你不会收到 `archive`。
-- `execute` **只列出有计划任务的阶段**（`tasks.md` 里已有任务行），也**不弹需求框**：它续跑已落盘的 `tasks.md`，不是重开一轮。没有可执行计划的阶段不会出现在候选里。
-- `update` **在需求之后、把消息交给你之前**多问一次「本轮改动有多大」，并把答案直接写进 `gate.json`：`--scope quick` 对应放行（`execute`），`--scope plan` 对应只给清单（`save`）。所以收到 `--scope quick` 时 `current/` 已经放行，**不要再弹闸门卡**；收到 `--scope plan` 时**不要写 `current/`**，先出改动清单等用户发话。无面板的模式（`json` / `print`）不会问也不会写记录——那正是 §5.1 闸门兜底的场景。
-- `help` 与裸回车只打印用法表，命令层做完即结束，**不会**给你发消息。可选项由输入框补全列表给出，没有「选模式」面板。
+- `ready: false` 或 `confirm` 不为 `true` 时**不写盘**；不要用别的工具绕过去写那些目标路径。
+- 只有零待决项、零冲突、校验全通过才能说「迁移完成」；否则报未完成，并给出报告路径与回滚命令。
+- 扫描只列出 HTML 里的 href/src，**不改写**；引用改成稳定 page ID 是迁移后的人工动作。
+- 迁移不深挖需求、不调设计技能——那正是它区别于普通页面设计的地方。
 
 ## 2. 硬规则（先读，别跳过）
 
@@ -172,6 +191,7 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 | 时机 | 技能 | 目的 |
 | :--- | :--- | :--- |
 | 入口 | `prototype-strategy` | 定**保真度与方法**：先线框后高保真，还是直接高保真；这一版要回答到什么程度。命令层的 hifi 双入口问的就是这件事 |
+| 入口·迁移 | `xpi-prototype-migration` | 用户选了「迁移已有原型或线框」：只走扫描 → 确认 → 执行 → 校验，不调任何设计技能 |
 
 `--based-on` 已给定时，这个决策已经被用户做过一次，不要重复问；直接进对应阶段。
 
@@ -310,4 +330,5 @@ prototype_preview { project, kind, file: "screens/01-home.html" }
 - [ ] `current/` 没有任何外部网络请求
 - [ ] hifi 的每条偏离都在 `DELTA.md` 有记录
 - [ ] `prototype_snapshot` 已执行，`CHANGELOG.md` 顶部是本轮
+- [ ] 迁移任务：待决项全部由用户确认、`confirm` 为 true，且只有 `complete` 为 true 才报「迁移完成」
 - [ ] 只调用了本表里真实存在且本轮用得上的技能；缺失的已如实说明

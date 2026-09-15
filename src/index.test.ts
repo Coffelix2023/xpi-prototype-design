@@ -91,12 +91,15 @@ afterEach(async () => {
 });
 
 describe("extension registration", () => {
-  it("exposes one command with the six modes plus five tools", () => {
+  it("exposes one command with the six modes plus eight tools", () => {
     const { commands, tools } = harness();
     const command = commands.get("xpi-prototype-design");
     expect(command).toBeDefined();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "prototype_gate",
+      "prototype_migration_execute",
+      "prototype_migration_scan",
+      "prototype_page_impact",
       "prototype_preview",
       "prototype_setup",
       "prototype_snapshot",
@@ -147,17 +150,18 @@ describe("extension registration", () => {
 });
 
 describe("mode dispatch", () => {
-  it("prints usage and opens nothing when no mode was typed", async () => {
+  it("starts the unified orchestrator when no mode was typed", async () => {
     const { commands, sendUserMessage } = harness();
     await commands.get("xpi-prototype-design")?.handler("", commandContext());
 
-    // 没有模式面板了：补全列表负责可选项，回车只打印用法。
     expect(select).not.toHaveBeenCalled();
-    expect(custom).not.toHaveBeenCalled();
-    expect(sendUserMessage).not.toHaveBeenCalled();
-    const usage = String(notify.mock.calls[0]?.[0]);
-    expect(usage).toContain("用法：/xpi-prototype-design <模式>");
-    for (const mode of MODES) expect(usage).toContain(mode);
+    expect(custom).toHaveBeenCalled();
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      expect.stringContaining("/skill:xpi-prototype-design orchestrate"),
+      expect.objectContaining({
+        expandPromptTemplates: true,
+      }),
+    );
   });
 
   it("treats an explicit help as the same usage notice", async () => {
@@ -662,6 +666,40 @@ describe("tool schemas", () => {
       extra: {},
       required: true,
     },
+    prototype_migration_execute: {
+      required: true,
+      extra: {
+        confirm: true,
+        decisions: [
+          {
+            fidelity: "wireframe",
+            implementation: "prototype",
+            pageId: "home",
+            source: "legacy/index.html",
+            target: "checkout/pages/home/wireframe",
+          },
+        ],
+        sources: [
+          "legacy",
+        ],
+      },
+    },
+    prototype_migration_scan: {
+      required: false,
+      extra: {
+        sources: [
+          "legacy",
+        ],
+      },
+    },
+    prototype_page_impact: {
+      required: true,
+      extra: {
+        pageIds: [
+          "home",
+        ],
+      },
+    },
     prototype_preview: {
       extra: {},
       required: true,
@@ -690,7 +728,7 @@ describe("tool schemas", () => {
     "Upper",
   ];
 
-  it("registers exactly the five tools", () => {
+  it("registers exactly the eight tools", () => {
     const { tools } = harness();
     expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(extras).sort());
   });
@@ -713,6 +751,13 @@ describe("tool schemas", () => {
           }),
         ).toBe(false);
       }
+      // prototype_migration_scan 不收 project（只读扫描来源），所以坏 slug 无从注入。
+      const declared = (
+        tool.parameters as {
+          properties?: Record<string, unknown>;
+        }
+      ).properties;
+      if (!declared || !("project" in declared)) continue;
       for (const project of BAD_SLUGS) {
         expect(
           Value.Check(tool.parameters, {

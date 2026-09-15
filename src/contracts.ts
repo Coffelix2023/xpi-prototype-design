@@ -1,8 +1,36 @@
-/**
- * contracts — 冻结对外契约：阶段枚举、目录布局、CHANGELOG 格式。
- *
- * 这里只放纯函数与常量，不做文件系统访问（见 artifacts.ts）。
- */
+export {
+  affectedPages,
+  assertCompletePageScope,
+  assertPageId,
+  executeMigration,
+  FIDELITIES,
+  type Fidelity,
+  IMPLEMENTATIONS,
+  type Implementation,
+  isFidelity,
+  isImplementation,
+  isPageId,
+  type MapIssue,
+  type MigrationFinding,
+  type MigrationPlan,
+  type MigrationScanEntry,
+  PAGE_ID_PATTERN,
+  type PageImpactReport,
+  type PageLink,
+  PRODUCT_MAP_FILE,
+  type ProductMap,
+  type ProductMapStatus,
+  type ProductMapValidation,
+  type ProductPage,
+  pageImpact,
+  parseProductMap,
+  productMapStatus,
+  readProductMap,
+  resolvePageLink,
+  scanMigrationSource,
+  validateProductMap,
+  writeProductMap,
+} from "./product-map.js";
 
 /** 两个子命令即两个阶段。闭集，工具入参由此枚举校验，不额外做路径消毒。 */
 export const KINDS = [
