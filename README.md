@@ -56,14 +56,34 @@ Package-level debugging uses npm or git remote sources on purpose: a local-path 
 
 | Command | Description |
 | --- | --- |
-| `/xpi-prototype-design <mode>` | Run a mode; with no mode it prints the usage table |
-| `/xpi-prototype-design help` | Print the usage table (same output as a bare command) |
-| `/xpi-prototype-design wireframe <requirement>` | Start a wireframe design |
-| `/xpi-prototype-design hifi [<requirement>]` | Start a hifi design — build on an existing wireframe, or go from scratch |
-| `/xpi-prototype-design execute` | Pick a saved `tasks.md` and continue from its first unfinished task |
-| `/xpi-prototype-design update` | Pick an existing project to revise — the command layer then asks how big this round is (edit directly / show the change list first) |
-| `/xpi-prototype-design archive` | Pick a finished project to archive |
-Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all six modes and Tab picks one — there is no mode menu, and Enter only prints the usage table.
+| `/xpi-prototype-design [<requirement>]` | The single entry point: starts the orchestration Skill, which walks goal → product → page scope → action → fidelity → scope summary → gate |
+| `/xpi-prototype-design help` | Print the usage table (same output as the bare command) |
+| `/xpi-prototype-design wireframe <requirement>` | Internal mode, kept for compatibility: start a wireframe directly |
+| `/xpi-prototype-design hifi [<requirement>]` | Internal mode: build on an existing wireframe, or go from scratch |
+| `/xpi-prototype-design execute` | Internal mode: pick a saved `tasks.md` and continue from its first unfinished task |
+| `/xpi-prototype-design update` | Internal mode: revise an existing project — the command layer then asks how big this round is (edit directly / show the change list first) |
+| `/xpi-prototype-design archive` | Internal mode: pick a finished project to archive |
+
+Only the bare entry is user-facing. The modes above are an internal compatibility layer: the guided flow never asks you to type `wireframe`, `hifi`, `execute`, `update`, `archive` or any `--*` flag. Migrating legacy assets is one of the goals the orchestrator offers, and it hands off to the `xpi-prototype-migration` Skill instead of the design flow.
+
+Argument completion is fuzzy, so a first letter is enough (`w` → `wireframe`). Typing the command with a trailing space lists all six internal modes and Tab picks one — there is no mode menu, and Enter prints the usage table.
+
+### Product and page model
+
+A product project is the container; a **page** is the thing you actually operate on. Each product keeps a product map at `<cwd>/.pi/prototype-design/<product>/product-map.json`.
+
+| Dimension | Values |
+| --- | --- |
+| `implementation` | `production` / `prototype` / `external` / `placeholder` |
+| `fidelity` | `none` / `wireframe` / `prototype` / `hifi` |
+
+- Every page carries a stable `id` (lowercase kebab-case), a display name, an optional production `route`, the prototype entry file, and declared links. Links address other pages by that stable `id`, so advancing a page from wireframe to hifi breaks nothing.
+- Maturity is **mixed by design**: production, wireframe, hifi, external and placeholder pages coexist in one map. A stage directory no longer stands for the whole product.
+- Page artifacts live under `<product>/pages/<page-id>/<kind>/` with the same `plan.md` / `tasks.md` / `gate.json` / `current/` / `vN/` layout as a project-level stage. Planning, gates, snapshots, changelog entries and rollback targets are scoped to one page; a single-page operation cannot silently authorize its siblings.
+- Preview resolves through a page id (or a product-flow entry). A multi-page product never falls back to "first HTML by file name".
+- Changing shared navigation or a link contract must list every affected page up front: `prototype_page_impact` computes that set and reports an incomplete scope instead of guessing.
+
+Existing stage-based artifacts (`<project>/<kind>/`) stay readable: `prototype_status` still reports them, historical `vN/` snapshots are untouched, and nothing is migrated or deleted automatically. Migration is the only path that moves legacy assets, and it is read-only on the source.
 
 ### Progressive by design: a planning leg and an execution leg
 
@@ -97,6 +117,9 @@ The command never creates directories: the project slug is decided by the agent 
 | `prototype_status` | One `(project, kind)`; every live one when `project` is omitted | Nothing | Never writes |
 | `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | Opens the file in the OS default browser | Refuses any path outside `current/` |
 | `prototype_gate` | `gate.json` at the stage root | Raises the card (three-way on the first round, two-way afterwards) and records both the choice and its baseline; `mode: "resume"` unlocks a stage that answered "save only" / "show me the change list" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record for the current round |
+| `prototype_page_impact` | The product map and its reverse link references | Nothing (read-only) | Reports the missing pages instead of accepting an incomplete scope for a shared-contract change |
+| `prototype_migration_scan` | Explicitly selected legacy files or directories **inside** the project root | Nothing (read-only); `href` / `src` are read, never rewritten | Refuses any source outside the project root, and any path traversal |
+| `prototype_migration_execute` | The same sources plus user-confirmed `decisions` | Copies into `<product>/pages/<page-id>/<kind>/current/`, registers the pages in the product map, writes a migration report | Writes nothing unless the plan has zero unresolved items **and** `confirm` is true; never overwrites an existing target |
 
 The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets `<stage>/current/**` and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
@@ -108,22 +131,35 @@ The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `
 <cwd>/
 ├── THEMES.md                          # shadcn oklch tokens — the theme's source of truth
 └── .pi/prototype-design/
-    ├── <project>/                     # kebab-case, e.g. subscription-page
-    │   └── <kind>/                    # wireframe | hifi
-    │       ├── plan.md                # requirements; overwritten each round
-    │       ├── tasks.md               # task list and progress; the execution leg's single source of truth
-    │       ├── gate.json              # the user's plan-gate answer; current/ stays locked until it says execute
-    │       ├── principles.md          # hard constraints for the stage
-    │       ├── DELTA.md               # hifi only: deviations from the wireframe
-    │       ├── CHANGELOG.md           # reverse-chronological, newest first
-    │       ├── current/               # working copy — edit here
-    │       └── v1/ v2/ ...            # immutable snapshots
+    ├── <product>/
+    │   ├── product-map.json           # stable page ids, implementation, fidelity, routes, links
+    │   ├── pages/<page-id>/<kind>/    # page-scoped artifacts, same layout as a stage below
+    │   │   ├── plan.md                # requirements; overwritten each round
+    │   │   ├── tasks.md               # task list and progress; the execution leg's single source of truth
+    │   │   ├── gate.json              # the user's plan-gate answer; current/ stays locked until it says execute
+    │   │   ├── principles.md          # hard constraints for the page stage
+    │   │   ├── DELTA.md               # hifi only: deviations from the wireframe
+    │   │   ├── CHANGELOG.md           # reverse-chronological, newest first
+    │   │   ├── current/               # working copy — edit here
+    │   │   └── v1/ v2/ ...            # immutable page snapshots
+    │   ├── <kind>/                    # legacy project-level stage — still readable, no longer the model
+    │   └── migration/                 # migration reports, one file per run
     └── archive/
         ├── CHANGELOG.md               # archive log, with restore commands
         └── 2026-09-13-subscription-page-hifi/
 ```
 
-Version numbers count per **stage**, not per project: `wireframe` and `hifi` under one project each keep their own `vN`. Archiving moves a whole `<kind>/` directory into `archive/` and is reversible via the command recorded in the log.
+Version numbers count per **page stage**, not per product: `wireframe` and `hifi` under one page each keep their own `vN`, and a legacy `<product>/<kind>/` stage keeps counting on its own too. Archiving moves a whole `<kind>/` directory into `archive/` and is reversible via the command recorded in the log.
+
+### Migration
+
+Migration brings explicitly selected legacy prototypes or wireframes into the page model. It is a separate Skill (`xpi-prototype-migration`) and a separate pair of tools: it never runs discovery and never calls a design skill.
+
+1. `prototype_migration_scan { sources }` — read-only. Reports the mapping plan (pages, links, assets, implementation, fidelity) and every **unresolved** item.
+2. You decide each unresolved item: page id, implementation, fidelity, target `<product>/pages/<page-id>/<kind>`, and where each non-HTML asset belongs — or why it is excluded.
+3. `prototype_migration_execute { project, sources, decisions, confirm: true }` — copies, registers the pages in the product map, runs link validation and a minimum render check, and writes a report to `<product>/migration/<stamp>-migration-report.md`.
+
+Sources are never modified. An existing target is a reported conflict, never an overwrite. Migration only reports **complete** when there are zero unresolved items, zero conflicts and every check passes; otherwise it says so and hands back an `rm -f` command that removes exactly the files that run created.
 
 ## Development
 
@@ -160,16 +196,21 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── THEMES.md                  # bundled shadcn token template, copied into target projects
 ├── docs/                      # Git workflow, repository guardrails, learning notes
-├── skills/xpi-prototype-design/SKILL.md   # stage flow + which design skills to call
+├── skills/
+│   ├── xpi-prototype-design/SKILL.md       # unified orchestration flow + which design skills to call
+│   └── xpi-prototype-migration/SKILL.md    # scan → confirm → execute → verify, no design skills
 └── src/
     ├── index.ts               # Extension entrypoint (register) + command wiring
-    ├── contracts.ts           # Kind enum, directory layout, CHANGELOG format
+    ├── contracts.ts           # Kind/Mode sets, directory layout, CHANGELOG format
     ├── templates.ts           # plan / principles / DELTA / CHANGELOG skeletons
-    ├── artifacts.ts           # fs: setup, snapshot, state, preview target
+    ├── artifacts.ts           # fs: setup, snapshot, state, preview target (project-level stages)
+    ├── page-artifacts.ts      # the same operations scoped to one page id
+    ├── product-map.ts         # product map, page ids, links, legacy scan/copy primitives
+    ├── migration.ts           # migration review plan, execution, checks, report
     ├── preview.ts             # OS-default-browser launcher
     ├── requirement-editor.ts  # requirement dialog: submit key wins over newline
-    ├── tools.ts               # the four read/write tools
-    └── gate.ts                # plan gate: the fifth tool + the current/ write block
+    ├── tools.ts               # the registered read/write tools
+    └── gate.ts                # plan gate tool + the current/ write block
 ```
 
 ## Design baseline

@@ -56,15 +56,34 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 | 命令 | 说明 |
 | --- | --- |
-| `/xpi-prototype-design <模式>` | 执行某个模式；不写模式则打印用法表 |
+| `/xpi-prototype-design [<需求>]` | 唯一入口：启动编排 Skill，按目标 → 产品 → 页面范围 → 动作 → 保真度 → 范围摘要 → 闸门逐步走 |
 | `/xpi-prototype-design help` | 打印用法表（与裸回车同款输出） |
-| `/xpi-prototype-design wireframe <需求>` | 开始线框设计 |
-| `/xpi-prototype-design hifi [<需求>]` | 开始高保真设计 —— 可选基于某个已有线框，或从零开始 |
-| `/xpi-prototype-design execute` | 挑一个已落盘的 `tasks.md`，从第一个未完成任务继续产出 |
-| `/xpi-prototype-design update` | 选一个已有项目进行修改 —— 命令层会再问一次「本轮改动有多大」（直接改 / 先给改动清单） |
-| `/xpi-prototype-design archive` | 选一个已完成项目归档 |
+| `/xpi-prototype-design wireframe <需求>` | 内部模式，保留兼容：直接开始线框设计 |
+| `/xpi-prototype-design hifi [<需求>]` | 内部模式：基于某个已有线框，或从零开始 |
+| `/xpi-prototype-design execute` | 内部模式：挑一个已落盘的 `tasks.md`，从第一个未完成任务继续产出 |
+| `/xpi-prototype-design update` | 内部模式：修改已有项目 —— 命令层会再问一次「本轮改动有多大」（直接改 / 先给改动清单） |
+| `/xpi-prototype-design archive` | 内部模式：选一个已完成项目归档 |
 
-补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部六个模式，Tab 选中即可。**没有模式菜单**：裸回车只打印用法表。
+只有裸入口是面向用户的。上表里的模式是**内部兼容层**：引导流程不会要求你输入 `wireframe`、`hifi`、`execute`、`update`、`archive` 或任何 `--*` 参数。迁移旧资产也是编排器给出的目标之一，它会交给 `xpi-prototype-migration` Skill，而不是走设计流程。
+
+补全是模糊匹配，打首字母就够（`w` → `wireframe`）；输入命令后跟一个空格会列出全部六个内部模式，Tab 选中即可。**没有模式菜单**：裸回车只打印用法表。
+
+### 产品与页面模型
+
+产品项目是容器，**页面**才是真正被操作的对象。每个产品在 `<cwd>/.pi/prototype-design/<product>/product-map.json` 维护一张产品地图。
+
+| 维度 | 可用值 |
+| --- | --- |
+| `implementation` | `production` / `prototype` / `external` / `placeholder` |
+| `fidelity` | `none` / `wireframe` / `prototype` / `hifi` |
+
+- 每个页面带稳定 `id`（小写 kebab-case）、显示名、可选的生产 `route`、原型入口文件和声明的链接。链接按稳定 `id` 指向别的页面，所以把某页从线框推进到高保真不会弄断任何东西。
+- 成熟度**天然混合**：生产页面、线框、高保真、外部页面与占位页面共存于同一张地图。阶段目录不再代表整个产品的状态。
+- 页面产物落在 `<product>/pages/<page-id>/<kind>/`，`plan.md` / `tasks.md` / `gate.json` / `current/` / `vN/` 布局与项目级阶段一致。规划、闸门、快照、CHANGELOG 条目和回滚目标都以单个页面为范围；单页面操作不能悄悄放行它的兄弟页面。
+- 预览按 page ID（或产品流入口）解析。多页面产品不会再退化到「按文件名排序取第一个 HTML」。
+- 改共享导航或链接契约时必须先列出全部受影响页面：`prototype_page_impact` 算出那个集合，范围不完整就报缺，而不是猜。
+
+既有阶段式产物（`<product>/<kind>/`）保持可读：`prototype_status` 照旧汇报它们，历史 `vN/` 快照一字不动，也不会被自动迁移或删除。迁移是唯一搬动旧资产的路径，且对来源只读。
 
 ### 渐进式：规划腿与执行腿
 
@@ -99,6 +118,9 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | `prototype_preview` | `<cwd>/.pi/prototype-design/<project>/<kind>/current/` | 用系统默认浏览器打开该文件 | 拒绝任何越出 `current/` 的路径 |
 | `prototype_gate` | 阶段根的 `gate.json` | 弹卡（首轮三选一 / 迭代轮二选一）并记录选择与 `baseline`；`mode: "resume"` 放行「仅保存 / 先给改动清单」之后的续跑 | 有面板时忽略模型传入的 `answer`；没有本轮的 `save` 记录时拒绝 resume |
 
+| `prototype_page_impact` | 产品地图与它的反向链接引用 | 不改任何东西（只读） | 共享契约变更的范围不完整时**报出缺失页面**，而不是接受一个残缺的集合 |
+| `prototype_migration_scan` | 用户明确指定的、位于项目根**内**的旧文件或目录 | 不改任何东西（只读）；`href` / `src` 只被读出，绝不被改写 | 拒绝项目根之外的来源，以及任何路径穿越 |
+| `prototype_migration_execute` | 同一批来源，加用户确认过的 `decisions` | 复制进 `<product>/pages/<page-id>/<kind>/current/`，把页面登记进产品地图，写迁移报告 | 计划还有待决项、或 `confirm` 不为 true 时**一个字节都不写**；绝不覆盖已存在的目标 |
 写盘门禁在 `gate.ts` 里注册一个 `tool_call` 钩子：`write` / `edit` 目标是 `<stage>/current/**`，且 `gate.json` 里没有**本轮**的 `execute`（答案不是 `execute`，或 `baseline` 与当前版本数不一致）时直接 block，并把原因回灌给模型。`plan.md` / `tasks.md` 这些台账不在门禁范围——它们的真实内容正好要在用户确认之后才写（`prototype_setup` 只放空骨架）。
 `project` 是信任边界：必须匹配 `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`，两层校验（工具 schema 与 `artifacts.ts`）。所有路径都由 `ctx.cwd` 推导，任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
 
@@ -108,22 +130,35 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 <cwd>/
 ├── THEMES.md                          # shadcn oklch token —— 主题的事实来源
 └── .pi/prototype-design/
-    ├── <project>/                     # kebab-case，例如 subscription-page
-    │   └── <kind>/                    # wireframe | hifi
-    │       ├── plan.md                # 需求；每轮深挖后覆写
-    │       ├── tasks.md               # 任务清单与进度；执行腿唯一的事实来源
-    │       ├── gate.json              # 计划闸门的用户选择；不是 execute 就写不进 current/
-    │       ├── principles.md          # 本阶段的硬约束
-    │       ├── DELTA.md               # 仅 hifi：相对线框的结构偏离
-    │       ├── CHANGELOG.md           # 倒序，最新在最上方
-    │       ├── current/               # 工作副本 —— 改这里
-    │       └── v1/ v2/ ...            # 不可变快照
+    ├── <product>/
+    │   ├── product-map.json           # 稳定 page ID、实现来源、保真度、路由与链接
+    │   ├── pages/<page-id>/<kind>/    # 页面级产物，布局与下面的阶段一致
+    │   │   ├── plan.md                # 需求；每轮深挖后覆写
+    │   │   ├── tasks.md               # 任务清单与进度；执行腿唯一的事实来源
+    │   │   ├── gate.json              # 计划闸门的用户选择；不是 execute 就写不进 current/
+    │   │   ├── principles.md          # 本页面阶段的硬约束
+    │   │   ├── DELTA.md               # 仅 hifi：相对线框的结构偏离
+    │   │   ├── CHANGELOG.md           # 倒序，最新在最上方
+    │   │   ├── current/               # 工作副本 —— 改这里
+    │   │   └── v1/ v2/ ...            # 页面级不可变快照
+    │   ├── <kind>/                    # 旧的项目级阶段 —— 仍可读，但已不是模型
+    │   └── migration/                 # 迁移报告，一次运行一个文件
     └── archive/
         ├── CHANGELOG.md               # 归档日志，含恢复命令
         └── 2026-09-13-subscription-page-hifi/
 ```
 
-版本号按**阶段**递增，不按项目：同一项目下的 `wireframe` 与 `hifi` 各数各的 `vN`。归档把整个 `<kind>/` 目录移进 `archive/`，可凭日志里记录的命令恢复。
+版本号按**页面阶段**递增，不按产品：同一页面下的 `wireframe` 与 `hifi` 各数各的 `vN`，旧的项目级 `<product>/<kind>/` 阶段也照旧自己数。归档把整个 `<kind>/` 目录移进 `archive/`，可凭日志里记录的命令恢复。
+
+### 迁移
+
+迁移把用户明确指定的旧原型或线框搬进页面模型。它是独立的 Skill（`xpi-prototype-migration`）加独立的一对工具：不深挖需求，也不调任何设计技能。
+
+1. `prototype_migration_scan { sources }` —— 只读。产出映射计划（页面、链接、资源、实现来源、保真度）与全部**待决项**。
+2. 你逐项决定待决项：page ID、实现来源、保真度、目标 `<product>/pages/<page-id>/<kind>`，以及每个非 HTML 资源归谁 —— 或者说明为什么排除它。
+3. `prototype_migration_execute { project, sources, decisions, confirm: true }` —— 复制、把页面登记进产品地图、跑链接校验与最小渲染检查，报告写到 `<product>/migration/<时间>-migration-report.md`。
+
+来源文件永远不改。目标已存在只记为冲突，绝不覆盖。只有零待决项、零冲突、校验全通过，迁移才会报**完成**；否则如实报未完成，并给出一条 `rm -f` 命令，只删本次运行新建的文件。
 
 ## 开发
 
@@ -160,16 +195,21 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── THEMES.md                  # 包内 shadcn token 模板,会被复制进目标项目
 ├── docs/                      # Git 工作流、仓库约束、学习笔记
-├── skills/xpi-prototype-design/SKILL.md   # 阶段流程 + 该调用哪些设计技能
+├── skills/
+│   ├── xpi-prototype-design/SKILL.md       # 统一编排流程 + 该调用哪些设计技能
+│   └── xpi-prototype-migration/SKILL.md    # 扫描 → 确认 → 执行 → 校验,不调设计技能
 └── src/
     ├── index.ts               # 扩展入口(register)+ 命令接线
-    ├── contracts.ts           # Kind 枚举、目录布局、CHANGELOG 格式
+    ├── contracts.ts           # Kind/Mode 闭集、目录布局、CHANGELOG 格式
     ├── templates.ts           # plan / principles / DELTA / CHANGELOG 骨架
-    ├── artifacts.ts           # 文件系统:setup、snapshot、state、预览目标
+    ├── artifacts.ts           # 文件系统:项目级阶段的 setup、snapshot、state、预览目标
+    ├── page-artifacts.ts      # 同一批操作,按单个 page ID 生效
+    ├── product-map.ts         # 产品地图、page ID、链接、旧布局扫描/复制原语
+    ├── migration.ts           # 迁移评审计划、执行、校验、报告
     ├── preview.ts             # 系统默认浏览器启动器
     ├── requirement-editor.ts  # 需求对话框:提交键优先于换行判定
-    ├── tools.ts               # 注册的四个读写工具
-    └── gate.ts                # 计划闸门:第五个工具 + current/ 写入门禁
+    ├── tools.ts               # 注册的读写工具
+    └── gate.ts                # 计划闸门工具 + current/ 写入门禁
 ```
 
 ## 设计规范

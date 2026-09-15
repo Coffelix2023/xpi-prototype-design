@@ -11,10 +11,21 @@
 | PR | Pull Request，合并请求。 | 仅由用户显式提出时才走 |
 | ruleset | GitHub 仓库规则集。 | 由用户在 GitHub UI 管理；挡的是历史重写与删除，不是普通提交 |
 | 远端同步 | 先 fetch，再决定是否 rebase / push / 停止。 | 避免覆盖与分叉 |
-| 模式 (mode) | 命令模式闭集：`wireframe` / `hifi` / `execute` / `update` / `archive`。 | 类型即 `Mode`；`wireframe` / `hifi` 与 `KINDS` 同构，`execute` 是执行腿入口但不产新目录 |
+| 模式 (mode) | 命令模式的内部闭集：`wireframe` / `hifi` / `execute` / `update` / `archive` / `help`。 | 类型即 `Mode`；面向用户的只有统一入口，模式是保留的兼容分派 |
+| 统一入口 (unified entry) | 裸 `/xpi-prototype-design [需求]`，启动编排 Skill。 | 用户不需要输入模式或 `--*` 参数；编排流程由 `skills/xpi-prototype-design/SKILL.md` §1 定义 |
 | 项目 (project) | 一个设计项目的 slug，产物目录的第一层。 | 小写 kebab-case；同一项目的 `wireframe` 与 `hifi` 必须同名 |
 | 阶段 (kind) | 产物类别，闭集 `wireframe` / `hifi`。 | 类型即 `Kind`；项目下的第二层，不含 `update` / `archive` |
 | 产物目录 | `<cwd>/.pi/prototype-design/<project>/<kind>/`。 | 相对项目根 |
+| 产品地图 (product map) | `<cwd>/.pi/prototype-design/<product>/product-map.json`：登记稳定 page ID、名称、实现来源、保真度、路由与链接。 | 页面身份的事实来源；未登记的页面不能成为页面级操作目标 |
+| 页面 (page) | 产品地图里一个可操作对象，由稳定 page ID 指认。 | 类型即 `ProductPage`；多个页面可有不同成熟度，互不牵连 |
+| page ID | 页面在产品地图里的稳定标识，小写 kebab-case。 | 推进保真度不改变它；链接按它解析，不按阶段文件路径 |
+| 实现来源 (implementation) | 页面落在哪个世界：`production` / `prototype` / `external` / `placeholder`。 | 与保真度正交：已落地 ≠ 高保真 |
+| 保真度 (fidelity) | 原型产物的完成度：`none` / `wireframe` / `prototype` / `hifi`。 | 与实现来源正交 |
+| 页面阶段 (page stage) | `<product>/pages/<pageId>/<kind>/`，承载该页对应保真度的产物。 | 与项目级阶段同构；阶段目录只代表一个页面，不代表整个产品 |
+| 受影响页面 (affected pages) | 改共享导航或链接契约时，反向引用算出的完整页面集合。 | 由 `prototype_page_impact` 计算；集合不完整即范围不完整 |
+| 迁移 (migration) | 把用户明确指定的旧原型/线框搬进页面模型的动作，来源只读。 | 独立 Skill `xpi-prototype-migration`；扫描 → 用户确认 → 执行 → 校验 |
+| 待决项 (unresolved) | 迁移计划里 AI 不愿替用户决定的字段：pageId / implementation / fidelity / target / 资源归属。 | 待决项非空即拒绝执行，绝不填默认值蒙过去 |
+| 迁移报告 (migration report) | `<product>/migration/<时间>-migration-report.md`：映射、校验结果与回滚命令。 | 只有零待决项、零冲突、校验全通过才写「完成」 |
 | current | 阶段内唯一可变目录，agent 直接改它。 | 工作副本 |
 | vN | 第 N 次产出的不可变快照目录。 | 版本号只增不减 |
 | 快照 (snapshot) | 把 `current/` 存为下一个 `vN/` 并追加 CHANGELOG 条目的动作。 | 由 `prototype_snapshot` 保证一致性 |
@@ -47,6 +58,10 @@
 - 用「归档」指移进 `archive/`：不要写「删除 / 下线」——它是可逆移动，不是销毁。
 - 用「快照」指 `vN` 目录复制：不要写「备份 / checkpoint」。
 - 用「预览」指打开浏览器；「像素评审」专指用 `xpi-visualoop` 看真实渲染像素。
+- 用「页面」指产品地图里登记的可操作对象：不要写「screen / 界面 / 视图」——`current/screens/` 装的是页面产物文件，不是页面身份。
+- 用「产品地图」指产品那一层的登记：不要从目录名或 HTML 文件名反推页面身份。
+- 用「迁移」指把旧资产搬进页面模型：不要写「导入 / 搬迁 / 转换」——它不重画、不升级保真度。
+- 用「待决项」指迁移计划里等用户拍板的字段：不要写「warning / TODO」——默认值不能吞掉它。
 - 用「项目根」指目标项目 `cwd`：本仓库是扩展本体，不是产物存放处。
 - 用「Git 卫生检查点」指 `docs/GIT-WORKFLOW.md` §3：不要写「git 检查 / pre-commit 流程」。
 - 「直推」不是违规词：阶段一下它就是默认回路，不要用它暗示「需要特别授权」。
