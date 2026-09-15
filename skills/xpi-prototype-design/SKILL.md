@@ -167,10 +167,25 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 1. 先确认放行：看 `<stage>/gate.json`（`prototype_status` 会带出闸门状态）。答案是 `save` 时先调 `prototype_gate { project, kind, mode: "resume" }`；记录缺失时说明闸门还没过，先回 §5.1。
 2. 读 `plan.md` 与 `tasks.md` 全文。**不要重新深挖，也不要再问一遍需求**——答复已经在两份文件里。
 3. 取第一个未完成任务（`- [ ]` 且无 `⏳`），先把行尾标上 `⏳ in_progress`，再只做这一项。
-4. 产出后**立刻**把 `- [ ]` 改成 `- [x]` 并紧跟一条验证子行（验证了什么、怎么看出来的、时间）。一次只推进一项，不批量补勾。
-5. 再进下一项，直到全部完成，然后按 §8 快照 + 预览。
-6. `tasks.md` 不存在、或一条任务行都没有时**不要凭空开工**：停下来告诉用户「计划未落盘」，让他先过 §5.1。
+4. **骨架优先策略**：若任务要创建新 HTML 文件且预估超 200 行，必须拆成两步：
+   - 第一步：用 `write` 生成骨架（完整 HTML 结构 + 空 `<style>`/`<script>` + 语义区块占位符就位，wireframe 阶段带 `data-wireframe-block`），标记任务 `[x]` 并验证骨架完整性
+   - 第二步：用 `replace` 或 `insert` 逐块填充内容（CSS tokens → 各语义区块 → 交互脚本），每次修改 ≤ 200 行，填充完毕后标记 `[x]` 并验证
+   - 若任务已是小改动（≤ 200 行），直接用 `replace`/`insert`，禁止 `read` + `write` 整文件
+5. 产出后**立刻**把 `- [ ]` 改成 `- [x]` 并紧跟一条验证子行（验证了什么、怎么看出来的、时间）。一次只推进一项，不批量补勾。
+6. 再进下一项，直到全部完成，然后按 §8 快照 + 预览。
+7. `tasks.md` 不存在、或一条任务行都没有时**不要凭空开工**：停下来告诉用户「计划未落盘」，让他先过 §5.1。
 
+**按构建阶段拆分示例**：
+
+```markdown
+- [ ] 1.1 生成首页骨架 (验收:HTML 结构完整、所有 section 占位符就位、style/script 空标签存在;产出:current/index.html)
+- [ ] 1.2 填充 CSS tokens 与全局样式 (验收:THEMES.md 的 oklch 变量已定义、dark/light 类就绪;产出:current/index.html)
+- [ ] 1.3 实现 header 区块 (验收:导航可点击、主题切换按钮功能正常;产出:current/index.html)
+- [ ] 1.4 实现 main 内容区 (验收:主要信息层级正确、CTA 按钮就位;产出:current/index.html)
+- [ ] 1.5 实现交互脚本 (验收:主题/语言切换持久化、无控制台错误;产出:current/index.html)
+```
+
+除 1.1（骨架用 `write`）外，每个任务用 `replace` 或 `insert`，而不是 `write` 重写整个文件。
 状态只有三态，跳过必须在行上留痕：
 
 | 状态 | 表达 |
@@ -241,6 +256,38 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 | `diagram-design` | 要架构/流程/状态机图 |
 
 ## 7. 产出
+
+### 生成策略（控制单次输出复杂度）
+
+**骨架优先原则**：禁止一次性生成完整 HTML。必须按以下顺序增量构建：
+
+1. **骨架阶段**（用 `write` 创建文件）
+   - HTML 结构：`<!DOCTYPE>` + `<head>` + `<body>` 的完整树形
+   - 空标签占位：`<style>/* tokens */</style>` `<script>// interactions</script>`
+   - 语义区块：`<header>`, `<main>`, `<footer>` 占位；wireframe 阶段按「### wireframe」带 `data-wireframe-block` 与 `data-priority`
+
+2. **填充阶段**（用 `replace` 或 `insert` 增量修改）
+   - CSS tokens（一次）
+   - 每个区块的内容（逐块）
+   - 交互脚本（最后）
+
+**复杂度红线**：
+
+- 单次 `replace` 的新内容 ≤ 200 行
+- 单个函数/样式块 ≤ 50 行
+- 若某区块预估超 200 行，拆成子任务
+
+**工具选择**：
+
+- 创建骨架 → `write`
+- 填充/修改 → `replace`（精准锚点）或 `insert`
+- 禁止为了修改 10 行而 `read` + `write` 整个 800 行文件
+
+**复杂度豁免**：
+
+- 纯声明式 HTML 模板（表单、数据表格）结构平坦时，可单次生成超 200 行
+- CSS 选择器嵌套深度 > 3 层、单个 JavaScript 函数 > 50 行，即使总行数未超 200 也必须拆分
+- SVG 图标定义（在 `<defs>` 或 `<symbol>` 中）不计入复杂度红线，但需放在独立 `<defs>` 区块
 
 ### wireframe
 
