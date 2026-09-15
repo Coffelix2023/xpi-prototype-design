@@ -3,7 +3,7 @@
 **English** · [简体中文](./README.zh-CN.md)
 
 **[Pi-Extension] One-Commander turns design discussions into versioned, reviewable prototype artifacts.**
-**PI扩炸: 一个斜杠命令把设计讨论落成可版本化、可评审的原型产物。**
+**PI扩展: 一个斜杠命令把设计讨论落成可版本化、可评审的原型产物。**
 
 <!-- TODO: add a LICENSE file (MIT) — the badge below links to it -->
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)

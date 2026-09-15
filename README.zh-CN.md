@@ -2,7 +2,7 @@
 
 [English](./README.md) · **简体中文**
 
-**PI扩炸: 一个斜杠命令把设计讨论落成可版本化、可评审的原型产物。**
+**PI扩展: 一个斜杠命令把设计讨论落成可版本化、可评审的原型产物。**
 
 **[Pi-Extension] One-Commander turns design discussions into versioned, reviewable prototype artifacts.**
 
