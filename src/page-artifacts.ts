@@ -32,7 +32,8 @@ export function pageStagePath(project: string, pageId: string, kind: Kind): stri
   return `.pi/prototype-design/${project}/pages/${pageId}/${kind}`;
 }
 
-function absoluteStage(
+/** 阶段目录的绝对路径。含 `..` 越界检查，标注、快照、预览共用同一道闸。 */
+export function absoluteStage(
   projectRoot: string,
   project: string,
   pageId: string,

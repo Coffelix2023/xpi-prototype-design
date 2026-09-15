@@ -53,6 +53,10 @@ import {
   readProductMap,
   resolvePageLink,
 } from "./product-map.js";
+import {
+  createEmptySemanticMap,
+  incrementSemanticMapVersion,
+} from "./semantic-ui-map.js";
 
 /** 工具输出上限；超出截断，保证回灌上下文有界。 */
 const MAX_OUTPUT = 2_000;
@@ -239,7 +243,7 @@ async function assertSharedPageScope(
 export function registerPrototypeTools(pi: ExtensionAPI): void {
   pi.registerTool({
     description:
-      "为指定项目初始化 prototype-design 产物骨架（.pi/prototype-design/<project>/<kind>/），并在缺失时把包内 THEMES.md 模板复制到项目根。幂等：已存在的文档不会被覆盖。",
+      "为指定项目初始化 prototype-design 产物骨架（.pi/prototype-design/<project>/<kind>/），建空语义字典骨架（<project>/semantic-ui-map.yaml），并在缺失时把包内 THEMES.md 模板复制到项目根。幂等：已存在的文档与字典都不会被覆盖。",
     label: "初始化原型设计目录",
     name: "prototype_setup",
     parameters: Type.Object({
@@ -273,11 +277,13 @@ export function registerPrototypeTools(pi: ExtensionAPI): void {
       const result = params.pageId
         ? await setupPageArtifacts(ctx.cwd, params.project, params.pageId, params.kind)
         : await setupArtifacts(ctx.cwd, params.project, params.kind);
+      const semanticMap = await createEmptySemanticMap(ctx.cwd, params.project);
       const text = line(
         [
           `已就绪：${result.directory}`,
           `本次新建文档：${list(result.createdDocs)}`,
           `${result.themesPath}：${result.themesStatus === "created" ? "已从扩展模板创建" : "已存在，未改动"}`,
+          `语义字典：${semanticMap.path}（${semanticMap.status === "created" ? "已建空骨架" : "已存在，未改动"}）`,
           "下一步：按 skills/xpi-prototype-design/SKILL.md 深挖需求，先在聊天里展示结论；确认后才写 plan.md 与 tasks.md。写盘前必须调 prototype_gate 让用户做三选一确认——没选「保存后立即执行」之前，写 current/ 会被 tool_call 钩子挡回。",
         ].join("\n"),
       );
@@ -357,10 +363,14 @@ export function registerPrototypeTools(pi: ExtensionAPI): void {
             files: params.files,
             reason: params.reason,
           });
+      const semanticMap = await incrementSemanticMapVersion(ctx.cwd, params.project);
       const text = line(
         [
           `已存 v${result.version}：${result.versionPath}`,
           `记录：${result.changelogPath}`,
+          semanticMap
+            ? `语义字典：${semanticMap.path} → v${semanticMap.version}（${semanticMap.updated}）`
+            : "语义字典：未启用语义标注，未递增版本",
           result.rollbackCommand
             ? `回滚上一版：${result.rollbackCommand}`
             : "首个版本，无可回滚目标",

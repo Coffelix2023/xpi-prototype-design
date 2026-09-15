@@ -308,7 +308,7 @@ export async function readArtifactState(
 }
 
 /** 递归收集 `current/` 下的 html，按路径排序，保证默认预览目标可复现。 */
-async function listHtmlFiles(directory: string): Promise<string[]> {
+export async function listHtmlFiles(directory: string): Promise<string[]> {
   if (!(await exists(directory))) return [];
   const entries = await readdir(directory, {
     recursive: true,

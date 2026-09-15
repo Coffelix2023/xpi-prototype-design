@@ -32,6 +32,31 @@ export {
   writeProductMap,
 } from "./product-map.js";
 
+/**
+ * semantic-ui-map 的类型与闭集。真相在 `semantic-ui-map.ts`，这里只做出口：
+ * 校验、解析、标注三个模块从同一处取枚举，避免「两处各写一份枚举」漂移。
+ *
+ * 与计划文档的命名差异：枚举数组用复数（`STATUSES` / `STAGES`）——它们是列表不是单值；
+ * 类型名保持 `Status` / `ElementType` / `SemanticElement`，与 spec.md 字段一一对应。
+ */
+export {
+  ELEMENT_TYPES,
+  type ElementType,
+  MAP_TYPES,
+  type MapType,
+  PROP_TYPES,
+  type PropDefinition,
+  type PropType,
+  type SemanticElement,
+  type SemanticMap,
+  type SemanticMapMeta,
+  type SemanticPage,
+  STAGES,
+  STATUSES,
+  type Stage,
+  type Status,
+} from "./semantic-ui-map.js";
+
 /** 两个子命令即两个阶段。闭集，工具入参由此枚举校验，不额外做路径消毒。 */
 export const KINDS = [
   "wireframe",
