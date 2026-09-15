@@ -59,7 +59,8 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
     ├── semantic-ui-map.ts # 语义字典:双码、加载、解析、六类校验、版本递增
     ├── semantic-ui-map-yaml.ts # 最小 YAML 解析器(本 schema 子集)
     ├── badge-template.ts  # 徽标 CSS/JS 模板与 HTML 注入
-    └── semantic-annotate.ts # semantic_ui_map_annotate 工具
+    ├── semantic-annotate.ts # semantic_ui_map_annotate 工具(写盘: 徽标后处理)
+    └── semantic-tools.ts   # semantic_ui_map_validate / semantic_ui_map_parse(只读, 不碰闸门)
 ```
 
 `skills/`、`prompts/` 等资源目录在**有真实内容时**再加入 pi manifest,不预建空目录。
@@ -101,7 +102,8 @@ pnpm coverage         # vitest run --coverage（带 semantic-ui-map 四个模块
 | HTML 归属 | HTML 由 agent 写，扩展只做后处理 | 扩展不生成 HTML；`semantic_ui_map_annotate` 按 `id` 匹配，写错的靠返回值里的计数暴露，不静默 |
 | 范围过滤 | `multi-page` 按 `fidelities[stage]` 只标注指向本文件的元素；`spa` 按 `id` 命中 | 短码只在页面内唯一，跨页面全量匹配会串台 |
 | 路由归属 | SPA 的显示/隐藏由原型自己实现（非活动页面容器 `display:none`），契约写在 SKILL.md §8.5 | 徽标是元素的 `::before`，容器隐藏则徽标一并隐藏；扩展猜标记契约会静默失效 |
-| YAML 解析 | 手写最小子集（`semantic-ui-map-yaml.ts`），不引依赖 | 零运行时依赖；schema 固定，不需要完整 YAML 1.2。支持与不支持的范围见 schema 文档 §10 |
+| YAML 解析 | 手写最小子集（`semantic-ui-map-yaml.ts`），不引依赖 | 零运行时依赖；schema 固定，不需要完整 YAML 1.2。支持与不支持的范围见 schema 文档 §11 |
+| 只读与写盘分文件 | `semantic-tools.ts` 只放只读工具（validate / parse），`semantic-annotate.ts` 放写盘工具（annotate） | 「这个模块碰不碰盘」是评审时最需要一眼看出的属性；只读工具不写盘，因此不碰 `gate.ts`，闸门射程不变 |
 | 校验 | 六类问题码；`version`/`updated` 由快照递增时只改这两行，不重新序列化字典 | 人工写的注释与字段顺序必须活下来 |
 
 **集成点**：
@@ -109,6 +111,8 @@ pnpm coverage         # vitest run --coverage（带 semantic-ui-map 四个模块
 - `prototype_setup` → `createEmptySemanticMap`（幂等，已存在不覆写）
 - `prototype_snapshot` → `incrementSemanticMapVersion`（失败静默降级，不让一次成功的快照看起来像失败）
 - `semantic_ui_map_annotate` → `annotateStage`（字典缺失时一个字节都不写）
+- `semantic_ui_map_validate` → `validateProjectMap`（只读；缺字典报 `missing`，不把「没校验」渲染成「通过」）
+- `semantic_ui_map_parse` → `parseProjectInput`（只读；多候选封顶 10 条 + 总数，不替用户挑）
 - 不改 `prototype_preview`、`prototype_gate`：预览逻辑自包含，闸门只管写盘许可
 
 **文档与示例**：字段真相在 [`docs/semantic-ui-map-schema.md`](./docs/semantic-ui-map-schema.md)，与 `src/semantic-ui-map.ts` 类型一一对应；可运行示例在 [`examples/semantic-ui-map/`](./examples/semantic-ui-map/)（其字典与 HTML 由 `src/semantic-flow.test.ts` 守着，腐烂即测试失败）。

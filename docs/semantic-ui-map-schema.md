@@ -125,7 +125,24 @@ props:
 | `duplicate-alias` | `label` 或 `aliases` 在跨元素间重复（大小写不敏感） |
 | `invalid-fidelity-path` | `fidelities` 路径格式与 `meta.type` 不符 |
 
-## 10. 支持的 YAML 子集
+## 10. 工具调用契约
+
+字典的读写入口都是**工具**，不让 Agent 直接改 YAML。分工：**库函数**（`src/semantic-ui-map.ts`）只做纯计算，类型真相在那里；**工具**（`src/semantic-tools.ts` 只读、`src/semantic-annotate.ts` 写盘）负责路径解析、输出整形与截断。
+
+| 工具 | 入参 | 返回 | 写盘 |
+| :--- | :--- | :--- | :--- |
+| `semantic_ui_map_validate` | `{ project }` | `status`：`valid` / `invalid` / `missing` / `unreadable`；`errors[]`（`code` + `path` + `message`，封顶 10 条）；`total` / `shown` 计数；`version` | 否 |
+| `semantic_ui_map_parse` | `{ project, input, page? }` | `status`：`matched` / `ambiguous` / `unregistered` / `missing` / `unreadable`；命中给元素摘要（`id` / `short` / `type` / `status` / `fidelities`），多候选给封顶 10 条 + `total` | 否 |
+| `semantic_ui_map_annotate` | `{ project, pageId, kind }` | 标注了哪些文件、各补了几处徽标、哪些文件没命中 | 是（只写该页面阶段 `current/`） |
+
+分工与边界：
+
+- **校验**走 `loadSemanticMap` → `validateSemanticMap`；**解析**走 `loadSemanticMap` → `parseInput`。工具不复制这两者的类型与规则——改规则只改库，工具跟着走。
+- `missing`（文件不存在）与 `unreadable`（文件在、但 YAML 坏或缺 `meta`）是两回事，而且都**不是「通过」**：没校验就说没校验。`validateSemanticMap` 收的是已解析的 map，本来就没有「缺失」这一态，所以这两态在工具层补。
+- 输出上限 2000 字符，列表类另按 10 条封顶，并一律报「共 N 条，已显示 M 条」——截断不能被当成完整结果。
+- 前两个工具**只读**，因此不经过计划闸门（`src/gate.ts` 只拦 `current/**` 的 `write` / `edit`）。分文件的理由也在这里：一个模块碰不碰盘，看文件名就该知道。
+
+## 11. 支持的 YAML 子集
 
 解析器（`src/semantic-ui-map-yaml.ts`）手写实现，只覆盖本 schema 用得到的部分。**支持**：
 

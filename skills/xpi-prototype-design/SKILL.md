@@ -294,6 +294,7 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 - 一屏一文件：`current/screens/<ID>.html`，<ID> 形如 `01-home`。
 - 灰阶 + 内联 SVG；只用 `background / foreground / border / muted` 四个基础 token。
 - 每个块带 `data-wireframe-block="<id>"` 与 `data-priority="P0|P1|P2"`。
+- **为可修改元素分配语义 ID**：交互控件、导航项、内容区块等用户可能要求修改的元素，其 HTML `id` 属性必须等于字典里的短码（`P1-2-B1`）或全路径（`chat.header.nav-btn`）。
 - 占位文案贴近真实长度（中文 12–20 字），禁止 lorem ipsum。
 - 状态覆盖：正常 / 空 / 加载 / 错误，各自独立文件或独立视图。
 
@@ -306,6 +307,7 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 - sidebar 与分栏面板复刻 shadcn 外观；分栏可拖拽 resize，并且键盘可达。
 - 色值全部来自 `THEMES.md`；`--radius`、border、muted 层级与 shadcn 一致。
 - 无障碍底线：语义标签、`aria-label`、正文对比度 ≥ 4.5:1、焦点可见、尊重 `prefers-reduced-motion`。
+- **为可修改元素分配语义 ID**：交互控件、导航项、内容区块等用户可能要求修改的元素，其 HTML `id` 属性必须等于字典里的短码（`P1-2-B1`）或全路径（`settings.theme.toggle-btn`）。
 - 状态覆盖同 wireframe。
 
 ### hifi 的继承纪律
@@ -324,6 +326,16 @@ prototype_gate   { project, kind }        # 首次产出前的三选一闸门；
 
 ## 8. 收尾：快照 + 预览
 
+**标注徽标**（快照前必做）：
+
+```text
+semantic_ui_map_annotate { project, pageId, kind }
+```
+
+给 `id` 写对的元素补 `data-semantic-badge` / `data-status`，并注入徽标系统（CSS + 右上角开关按钮）。幂等，改完 HTML 可以再调。字典缺失时不写徽标，只报告跳过。
+
+**快照**：
+
 ```text
 prototype_snapshot { project, kind, change: "本轮做了什么", reason: "为什么", files: [...] }
 ```
@@ -331,7 +343,6 @@ prototype_snapshot { project, kind, change: "本轮做了什么", reason: "为�
 - `vN` 表示**第 N 次产出**；回滚目标即 `v(N-1)`，命令会随快照一起返回。
 - 版本号按**阶段**递增，不是按项目：同一项目下 `wireframe` 与 `hifi` 各数各的。
 - `CHANGELOG.md` 倒序，最新在最上方，由工具写入，不要手工改格式。
-
 然后让用户看到结果：
 
 ```text
@@ -343,20 +354,48 @@ prototype_preview { project, kind, file: "screens/01-home.html" }
 
 需要像素级评审或让用户圈选区域时，转 `xpi-visualoop`（`visual_prepare` → `visual_capture` → `visual_feedback`）。注意：`xpi-visualoop` 走 CDP，只能驱动它自己启动的 Chromium 系浏览器与独立 profile，**无法接管用户日常浏览器窗口**。
 
-## 8.5 语义徽标（semantic-ui-map）
+## 8.5 语义字典与徽标（semantic-ui-map）
 
-字典在**产品级**：`.pi/prototype-design/<project>/semantic-ui-map.yaml`，跨页面、跨阶段共享。`prototype_setup` 建空骨架，`prototype_snapshot` 自动递增 `meta.version`——两个都不需要你手写。
+字典在**产品级**：`.pi/prototype-design/<project>/semantic-ui-map.yaml`，跨页面、跨阶段共享。字段真相在 `docs/semantic-ui-map-schema.md`——改字典前先看它，别凭记忆写字段。
 
-你只负责两件事：
+**谁维护 `elements`**：只有你。`prototype_setup` 建空骨架，`prototype_snapshot` 只递增 `meta.version`——两者都**不登记**页面与元素。空骨架意味着标注一个徽标也落不下，所以需求深挖完成后、开始产出 HTML 之前，你必须把本轮的 `pages` 与 `elements` 按 schema 写进字典；每个元素带 `id`、`short`、`label`、`type`、`status`、`stage_created`、`fidelities`。同一元素从 wireframe 推进到 hifi 时 `id` / `short` 不变，只有 `fidelities` 各指一处。
 
-1. **写对 `id`**：每个可修改元素的 HTML `id` 必须等于它在字典里的短码（`P1-2-B1`）或全路径（`chat.composer.send-btn`）。
-2. **产出后调一次标注**：
+**三个工具的时机与形态**：
+
+1. 产出前 —— 校验，无问题码再往下走：
+
+```text
+semantic_ui_map_validate { project }
+```
+
+`status: valid` 才能继续；`invalid` 先修问题码；`missing` 表示字典还没建（**不是**校验通过）。
+
+2. 写 HTML 时 —— 写对 `id`：每个可修改元素的 HTML `id` 必须等于它在字典里的短码（`P1-2-B1`）或全路径（`chat.composer.send-btn`）。
+
+3. 产出后 —— 标注：
 
 ```text
 semantic_ui_map_annotate { project, pageId, kind }
 ```
 
 它给 id 写对的元素补 `data-semantic-badge` / `data-status`，并注入徽标系统（CSS + 右上角开关按钮）。幂等，改完 HTML 可以再调。
+
+用户用口语指元素时（「把那个折叠按钮改一下」）——解析，不要靠猜：
+
+```text
+semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }
+```
+
+- `matched`：直接按返回的元素干活。
+- `ambiguous`：把候选列表报给用户让他选，**不得自己挑一个**；也可以带 `page` 上下文再解析一次收窄。
+- `unregistered`：字典里没登记这个元素——先登记，或问用户要短码。
+
+**props 契约纪律**（改元素属性时）：
+
+- 该属性已在 `props` 里声明 → 只改它的 `current` 值，**不重写 HTML 结构**。
+- 不在契约内（例如给它新增一个 class、换掉组件结构）→ 先向用户声明「该修改超出契约范围，将改动组件结构」，得到许可再动手。
+
+**交付时把短码给用户**：本轮可修改元素的短码要一并报出来，否则用户没法用「改 `P1-2-B3`」这种口语引用它。
 
 **范围规则**（决定了哪些元素会被标注）：
 
@@ -404,6 +443,12 @@ semantic_ui_map_annotate { project, pageId, kind }
 - [ ] 暗色为默认；亮/暗与中/英切换都可用且不闪烁
 - [ ] `current/` 没有任何外部网络请求
 - [ ] hifi 的每条偏离都在 `DELTA.md` 有记录
+- [ ] 语义字典已登记本轮的 `pages` 与 `elements`（`prototype_setup` 只建空骨架，不会替你登记）
+- [ ] `meta.type` 与原型形态一致：单文件 SPA 写 `spa`，多文件写 `multi-page`
+- [ ] 可修改元素已分配语义 ID（HTML `id` 属性 = 字典短码/全路径）
+- [ ] `semantic_ui_map_validate` 返回 `valid`（`missing` 不算通过）
+- [ ] `semantic_ui_map_annotate` 已执行，徽标系统注入完成（字典缺失时跳过）
+- [ ] 交付时把本轮可修改元素的短码报给了用户
 - [ ] `prototype_snapshot` 已执行，`CHANGELOG.md` 顶部是本轮
 - [ ] 迁移任务：待决项全部由用户确认、`confirm` 为 true，且只有 `complete` 为 true 才报「迁移完成」
 - [ ] 只调用了本表里真实存在且本轮用得上的技能；缺失的已如实说明
