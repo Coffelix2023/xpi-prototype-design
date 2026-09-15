@@ -91,7 +91,7 @@ afterEach(async () => {
 });
 
 describe("extension registration", () => {
-  it("exposes one command with the six modes plus nine tools", () => {
+  it("exposes one command with the six modes plus eleven tools", () => {
     const { commands, tools } = harness();
     const command = commands.get("xpi-prototype-design");
     expect(command).toBeDefined();
@@ -105,6 +105,8 @@ describe("extension registration", () => {
       "prototype_snapshot",
       "prototype_status",
       "semantic_ui_map_annotate",
+      "semantic_ui_map_parse",
+      "semantic_ui_map_validate",
     ]);
     // 空 prefix 也补全：敲完命令加空格就列出全部子命令，Tab 选、回车发。
     const all = [
@@ -725,6 +727,16 @@ describe("tool schemas", () => {
         pageId: "chat",
       },
     },
+    semantic_ui_map_parse: {
+      required: true,
+      extra: {
+        input: "按钮",
+      },
+    },
+    semantic_ui_map_validate: {
+      extra: {},
+      required: true,
+    },
   };
 
   const BAD_SLUGS = [
@@ -735,7 +747,7 @@ describe("tool schemas", () => {
     "Upper",
   ];
 
-  it("registers exactly the nine tools", () => {
+  it("registers exactly the eleven tools", () => {
     const { tools } = harness();
     expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(extras).sort());
   });

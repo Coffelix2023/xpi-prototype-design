@@ -26,9 +26,10 @@ import {
 import { registerPrototypeGate } from "./gate.js";
 import { promptRequirement, requirementTitle } from "./requirement-editor.js";
 import { registerSemanticTools } from "./semantic-annotate.js";
+import { registerSemanticReadTools } from "./semantic-tools.js";
 import { registerPrototypeTools } from "./tools.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.1";
 
 /**
  * 参数补全：六个模式，用 pi-tui 的 fuzzyFilter。
@@ -329,6 +330,7 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
   registerPrototypeTools(pi);
   registerPrototypeGate(pi);
   registerSemanticTools(pi);
+  registerSemanticReadTools(pi);
 
   pi.registerCommand("xpi-prototype-design", {
     description:
