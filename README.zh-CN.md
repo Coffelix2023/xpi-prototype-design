@@ -26,6 +26,37 @@
 
 它也不越界:扩展是被 Pi 主进程加载的插件,不是独立服务。确实需要进程边界时,先写一份 ADR 说明理由,再动手。
 
+## 语义元素字典（Semantic UI Map）
+
+**vibe-coding 的零歧义元素定位。**
+
+修改原型时，模糊描述（"把那个折叠按钮改一下"）迫使 Agent 猜测或反复确认。**semantic-ui-map** 系统为每个可修改元素分配稳定的双码标识：
+
+- **短码**（用户友好，页面内唯一）：`P1-2-B3`
+- **全路径**（机器友好，全局唯一）：`chat.composer.send-btn`
+
+每个原型项目维护一份跨页面、跨保真度（wireframe → hifi）共享的字典：`.pi/prototype-design/<project>/semantic-ui-map.yaml`。HTML 里的元素角标显示短码，右上角按钮可整页开关。用户说「改 P1-2-B3」，Agent 直接定位——无需截图，无需反复确认。
+
+**核心特性：**
+
+- **双码映射**：短码供口语，全路径保证精确
+- **可视化徽标**：可切换浮层，状态颜色区分（proposed/confirmed/locked）
+- **跨保真度脊柱**：wireframe 到 hifi 阶段 ID 不变
+- **状态机**：proposed → confirmed → locked
+- **解析器与校验器**：解析短码、别名、全路径；检测冲突和循环引用
+- **零依赖**：纯 Node.js + TypeScript，无外部运行时
+- **优雅降级**：无字典时原型仍可正常预览
+
+字典记录元素元数据（类型、状态、props 契约、父子关系、fidelities 锚点），支持 SPA（客户端路由如 `#/chat`）和多页面模式。校验器检查六类问题：必填字段、ID/短码冲突、alias 重复、循环引用、状态机合法性、fidelities 路径格式。解析器接受短码、全路径或中文别名，返回唯一匹配、候选列表或未注册状态——绝不静默猜测。
+
+**怎么用（三步）：**
+
+1. `prototype_setup` 建出空字典骨架，Agent 深挖后把页面与元素填进去（字段说明见 [`docs/semantic-ui-map-schema.md`](./docs/semantic-ui-map-schema.md)）。
+2. HTML 里每个可修改元素的 `id` 写成它的短码或全路径。
+3. 产出后调一次 `semantic_ui_map_annotate { project, pageId, kind }`：给 id 命中的元素补 `data-semantic-badge` / `data-status`，并注入徽标系统（CSS + 右上角开关按钮）。幂等，可重复调。
+
+`prototype_snapshot` 会在存快照之后自动递增 `meta.version`；`meta.annotate_default: false` 让徽标初始隐藏（按钮显示 `OFF`）。没有字典时标注工具一个字节都不写，预览照常——字典是增强，不是阻塞项。完整可运行示例见 [`examples/semantic-ui-map/`](./examples/semantic-ui-map/)。
+
 ## 技术栈
 
 - [Node.js](https://nodejs.org/) + [pnpm](https://pnpm.io/),版本锁定在 [`mise.toml`](./mise.toml)
@@ -136,8 +167,8 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 
 | 工具 | 读什么 | 改什么 | 拒绝什么 |
 | --- | --- | --- | --- |
-| `prototype_setup` | 项目级阶段，或带 `pageId` 的单个页面阶段；外加 `<cwd>/THEMES.md` | 补建缺失的目录与文档骨架；`THEMES.md` 缺失时复制包内模板 | 绝不覆写已存在的文档或 `THEMES.md`；共享契约变更必须给全受影响集合（`sharedContract` + `affectedPageIds`） |
-| `prototype_snapshot` | 所选阶段的 `current/`：项目级，或单个 `pageId` | 写出 `v<N>/` 并在 `CHANGELOG.md` 顶部插入一条记录；返回的回滚命令指向该页面自己的上一版 `vN` | `current/` 为空时拒绝执行；共享契约变更的受影响页面集合不全时拒绝执行 |
+| `prototype_setup` | 项目级阶段，或带 `pageId` 的单个页面阶段；外加 `<cwd>/THEMES.md` | 补建缺失的目录与文档骨架；建空语义字典骨架（`<project>/semantic-ui-map.yaml`）；`THEMES.md` 缺失时复制包内模板 | 绝不覆写已存在的文档、字典或 `THEMES.md`；共享契约变更必须给全受影响集合（`sharedContract` + `affectedPageIds`） |
+| `prototype_snapshot` | 所选阶段的 `current/`：项目级，或单个 `pageId` | 写出 `v<N>/` 并在 `CHANGELOG.md` 顶部插入一条记录；递增字典 `meta.version` / `meta.updated`；返回的回滚命令指向该页面自己的上一版 `vN` | `current/` 为空时拒绝执行；共享契约变更的受影响页面集合不全时拒绝执行 |
 | `prototype_status` | 某个 `(project, kind)`，或带 `pageId` 的单个页面阶段；省略 `project` 时汇总全部活跃项 | 不修改任何东西 | 绝不写盘 |
 | `prototype_preview` | 所选阶段或页面的 `current/` | 用系统默认浏览器打开该文件 | 拒绝任何越出 `current/` 的路径；多页面产品拒绝猜页面，必须给 `pageId` 或 `flow` |
 | `prototype_gate` | 阶段根的 `gate.json`（带 `pageId` 时是页面阶段） | 弹卡（首轮三选一 / 迭代轮二选一）并记录选择、`baseline`，摘要里带上页面范围；`mode: "resume"` 放行「仅保存 / 先给改动清单」之后的续跑 | 有面板时忽略模型传入的 `answer`；没有本轮的 `save` 记录时拒绝 resume |
@@ -145,6 +176,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | `prototype_page_impact` | 产品地图与它的反向链接引用 | 不改任何东西（只读） | 共享契约变更的范围不完整时**报出缺失页面**，而不是接受一个残缺的集合 |
 | `prototype_migration_scan` | 用户明确指定的、位于项目根**内**的旧文件或目录 | 不改任何东西（只读）；`href` / `src` 只被读出，绝不被改写 | 拒绝项目根之外的来源，以及任何路径穿越 |
 | `prototype_migration_execute` | 同一批来源，加用户确认过的 `decisions` | 复制进 `<product>/pages/<page-id>/<kind>/current/`，把页面登记进产品地图，写迁移报告 | 计划还有待决项、或 `confirm` 不为 true 时**一个字节都不写**；绝不覆盖已存在的目标 |
+| `semantic_ui_map_annotate` | 所选页面阶段的 `current/**/*.html` 与产品级语义字典 | 给 `id` 与短码/全路径命中的元素补 `data-semantic-badge` / `data-status`，注入徽标系统（CSS + 开关按钮） | 幂等，重复调用不叠加；字典不存在时一个字节都不写，只报告跳过；`multi-page` 下不标注锚点指向别的文件的元素 |
 写盘门禁在 `gate.ts` 里注册一个 `tool_call` 钩子：`write` / `edit` 目标是某阶段的 `current/**`（项目级或页面级），且 `gate.json` 里没有**本轮**的 `execute`（答案不是 `execute`，或 `baseline` 与当前版本数不一致）时直接 block，并把原因回灌给模型。`plan.md` / `tasks.md` 这些台账不在门禁范围——它们的真实内容正好要在用户确认之后才写（`prototype_setup` 只放空骨架）。
 `project` 是信任边界：必须匹配 `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`，两层校验（工具 schema 与 `artifacts.ts`）。所有路径都由 `ctx.cwd` 推导，任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
 
@@ -218,7 +250,8 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── THEMES.md                  # 包内 shadcn token 模板,会被复制进目标项目
-├── docs/                      # Git 工作流、仓库约束、学习笔记
+├── docs/                      # Git 工作流、仓库约束、语义字典 schema
+├── examples/semantic-ui-map/  # 可运行示例:SPA + 徽标开关(字典/HTML/说明)
 ├── skills/
 │   ├── xpi-prototype-design/SKILL.md       # 统一编排流程 + 该调用哪些设计技能
 │   └── xpi-prototype-migration/SKILL.md    # 扫描 → 确认 → 执行 → 校验,不调设计技能
@@ -232,8 +265,12 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
     ├── migration.ts           # 迁移评审计划、执行、校验、报告
     ├── preview.ts             # 系统默认浏览器启动器
     ├── requirement-editor.ts  # 需求对话框:提交键优先于换行判定
+    ├── semantic-ui-map.ts     # 语义字典:双码、加载、解析、六类校验、版本递增
+    ├── semantic-ui-map-yaml.ts # 最小 YAML 解析器(本 schema 子集)
+    ├── badge-template.ts      # 徽标 CSS/JS 模板与 HTML 注入
+    ├── semantic-annotate.ts   # semantic_ui_map_annotate:把字典落到 current/ 的 HTML
     ├── tools.ts               # 注册的读写工具
-    └── gate.ts                # 计划闸门工具 + current/ 写入门禁
+    ├── gate.ts                # 计划闸门工具 + current/ 写入门禁
 ```
 
 ## 设计规范

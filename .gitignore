@@ -12,5 +12,11 @@ __pycache__/
 .venv/
 coverage/
 
+# 参考资料：vendored 第三方仓库（110MB），仅本地阅读
+docs/notes/
+
+# 原型示例产物：与扩展生成的 current/ 同类
+examples/
+
 # c6x-config
 **/fast-fixes/

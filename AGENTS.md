@@ -13,10 +13,12 @@
 - 维护版本链：`current/` 是工作副本，`vN/` 是不可变快照，`CHANGELOG.md` 倒序记账并给出回滚命令。
 - 维护归档：把整个 `<project>/<kind>/` 移进 `archive/`，并在 `archive/CHANGELOG.md` 记录含恢复命令的条目。
 - 通过 `skills/xpi-prototype-design/SKILL.md` 告诉 agent 每个阶段该调用哪些设计技能。
+- 维护语义字典 `<project>/semantic-ui-map.yaml`（产品级，跨页面与跨保真度共享），并在产出后按 `id` 把徽标落进 HTML（`semantic_ui_map_annotate`）。
 
 **不做什么**
 
 - 不产出可直接合并的产品组件代码——那是目标项目自身的职责。
+- **不生成 HTML 原型**：HTML 由 agent 写，扩展只做后处理（补徽标属性、注入徽标 CSS/JS）。同理不接管客户端路由——SPA 的显示/隐藏是原型自己的事。
 - 不替用户判断「某个项目做完了没有」——是否归档由用户在面板里决定，扩展只执行归档动作。
 - 不启动受控浏览器、不建 CDP 会话；像素级评审交给 `xpi-visualoop`。本扩展只用平台原生命令打开系统默认浏览器。
 - 不修改 Pi 的 system prompt；不接管终端渲染；不访问网络。
@@ -50,8 +52,14 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
 .
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md / README.md / README.zh-CN.md
+├── docs/semantic-ui-map-schema.md   # 字典 schema 唯一文档
+├── examples/semantic-ui-map/        # 可运行示例（SPA + 徽标开关）
 └── src/
-    └── index.ts           # 扩展入口(register);领域目录(tools/ commands/ lib/ 等)由项目按需增设
+    ├── index.ts           # 扩展入口(register)+ 命令接线
+    ├── semantic-ui-map.ts # 语义字典:双码、加载、解析、六类校验、版本递增
+    ├── semantic-ui-map-yaml.ts # 最小 YAML 解析器(本 schema 子集)
+    ├── badge-template.ts  # 徽标 CSS/JS 模板与 HTML 注入
+    └── semantic-annotate.ts # semantic_ui_map_annotate 工具
 ```
 
 `skills/`、`prompts/` 等资源目录在**有真实内容时**再加入 pi manifest,不预建空目录。
@@ -71,7 +79,38 @@ Node.js + pnpm(版本见 `mise.toml`)、TypeScript strict、Biome(lint+format)�
 pnpm typecheck        # tsc --noEmit
 pnpm -w run lint      # workspace root: biome check .
 pnpm test             # vitest run
+pnpm coverage         # vitest run --coverage（带 semantic-ui-map 四个模块的 80% 下限）
 ```
 
 - 提交前三条全绿。
 - 若 lint 输出意外出现 ESLint,先确认 `scripts.lint` 仍为 `biome check .`,再运行 `pnpm exec biome check .` 诊断;禁止安装 ESLint。
+- `vitest.config.ts` 只收 `src/**/*.test.ts`。`docs/notes/` 是参考资料（含 vendored 第三方仓库），其测试依赖不在本包，收进来会让 `pnpm test` 永远红。
+
+## 6. 语义字典（semantic-ui-map）
+
+**它解决什么**：用户说「把那个折叠按钮改一下」时，Agent 不必截图或反问。每个可修改元素拿一个稳定的双码标识，HTML 上角标显示短码。
+
+**架构决策（改动前必读）**：
+
+| 决策 | 内容 | 理由 |
+| :--- | :--- | :--- |
+| 字典位置 | `<project>/semantic-ui-map.yaml`，产品级 | 跨页面、跨保真度共享是「脊柱模型」的前提：同一元素在 wireframe 与 hifi 的 `id`/`short` 不变 |
+| 双码分隔符 | 短码 `-`（`P1-2-B1`），全路径 `.`（`chat.composer.send-btn`） | 两种码在格式上互斥，解析器不必猜；`-` 是合法 HTML `id` 字符，`#P1-2-B1` 可直接做 CSS 选择器 |
+| 徽标渲染 | `::before` + `attr(data-semantic-badge)`，`--badge-display` 一个变量控显隐 | 不污染 DOM，复制元素源码时徽标自动消失；开关只改一个 CSS 变量，不遍历 DOM |
+| 属性命名 | 元素属性 `data-semantic-badge`，注入标记 `data-badge-system`，**两者必须不同名** | 同名会让元素上第一个徽标属性骗过 `injectBadgeSystem` 的幂等检查，静默跳过注入（已出过这个 bug，`badge-template.test.ts` 里有回归用例） |
+| HTML 归属 | HTML 由 agent 写，扩展只做后处理 | 扩展不生成 HTML；`semantic_ui_map_annotate` 按 `id` 匹配，写错的靠返回值里的计数暴露，不静默 |
+| 范围过滤 | `multi-page` 按 `fidelities[stage]` 只标注指向本文件的元素；`spa` 按 `id` 命中 | 短码只在页面内唯一，跨页面全量匹配会串台 |
+| 路由归属 | SPA 的显示/隐藏由原型自己实现（非活动页面容器 `display:none`），契约写在 SKILL.md §8.5 | 徽标是元素的 `::before`，容器隐藏则徽标一并隐藏；扩展猜标记契约会静默失效 |
+| YAML 解析 | 手写最小子集（`semantic-ui-map-yaml.ts`），不引依赖 | 零运行时依赖；schema 固定，不需要完整 YAML 1.2。支持与不支持的范围见 schema 文档 §10 |
+| 校验 | 六类问题码；`version`/`updated` 由快照递增时只改这两行，不重新序列化字典 | 人工写的注释与字段顺序必须活下来 |
+
+**集成点**：
+
+- `prototype_setup` → `createEmptySemanticMap`（幂等，已存在不覆写）
+- `prototype_snapshot` → `incrementSemanticMapVersion`（失败静默降级，不让一次成功的快照看起来像失败）
+- `semantic_ui_map_annotate` → `annotateStage`（字典缺失时一个字节都不写）
+- 不改 `prototype_preview`、`prototype_gate`：预览逻辑自包含，闸门只管写盘许可
+
+**文档与示例**：字段真相在 [`docs/semantic-ui-map-schema.md`](./docs/semantic-ui-map-schema.md)，与 `src/semantic-ui-map.ts` 类型一一对应；可运行示例在 [`examples/semantic-ui-map/`](./examples/semantic-ui-map/)（其字典与 HTML 由 `src/semantic-flow.test.ts` 守着，腐烂即测试失败）。
+
+**新增字段/枚举时**：同步四处——`src/semantic-ui-map.ts` 的类型与闭集、`src/contracts.ts` 的出口、`docs/semantic-ui-map-schema.md`、`skills/xpi-prototype-design/SKILL.md` 的 §8.5。

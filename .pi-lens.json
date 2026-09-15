@@ -1,0 +1,12 @@
+{
+  "ignore": [
+    "docs/references/",
+    "docs/references/**",
+    "docs/prototypes/",
+    "docs/prototypes/**",
+    ".pi/prototype-design/",
+    ".pi/prototype-design/**",
+    "docs/notes/",
+    "docs/notes/**"
+  ]
+}

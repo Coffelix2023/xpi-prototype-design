@@ -63,6 +63,8 @@
       "!**/build",
       "!**/backend",
       "!**/__fixtures__",
+      "!docs/notes", //参考资料：含 vendored 第三方仓库(pico CSS/SVG)，不是本包代码
+      "!examples", //原型示例产物：与扩展生成的 current/ 同类，不是本包源码
       "!src/components/ui", //排除 shadcn-ui
       "!src/components/assistant-ui", //排除 assistant-ui
       "!src/components/animate-ui", //排除 animate-ui

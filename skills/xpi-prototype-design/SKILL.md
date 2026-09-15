@@ -343,6 +343,34 @@ prototype_preview { project, kind, file: "screens/01-home.html" }
 
 需要像素级评审或让用户圈选区域时，转 `xpi-visualoop`（`visual_prepare` → `visual_capture` → `visual_feedback`）。注意：`xpi-visualoop` 走 CDP，只能驱动它自己启动的 Chromium 系浏览器与独立 profile，**无法接管用户日常浏览器窗口**。
 
+## 8.5 语义徽标（semantic-ui-map）
+
+字典在**产品级**：`.pi/prototype-design/<project>/semantic-ui-map.yaml`，跨页面、跨阶段共享。`prototype_setup` 建空骨架，`prototype_snapshot` 自动递增 `meta.version`——两个都不需要你手写。
+
+你只负责两件事：
+
+1. **写对 `id`**：每个可修改元素的 HTML `id` 必须等于它在字典里的短码（`P1-2-B1`）或全路径（`chat.composer.send-btn`）。
+2. **产出后调一次标注**：
+
+```text
+semantic_ui_map_annotate { project, pageId, kind }
+```
+
+它给 id 写对的元素补 `data-semantic-badge` / `data-status`，并注入徽标系统（CSS + 右上角开关按钮）。幂等，改完 HTML 可以再调。
+
+**范围规则**（决定了哪些元素会被标注）：
+
+- `meta.type: multi-page`：只标注 `fidelities.<kind>` 指向本文件的元素；同一文件里出现别页元素的 id 也不会被标上。
+- `meta.type: spa`：不按文件过滤，单文件承载全部路由，按 id 命中。
+- 返回里的「未标注」文件表示该文件里没有元素命中——先查锚点和 `id` 是否写对，别猜。
+
+**SPA 路由契约**（扩展不接管路由，原型自己负责）：
+
+- 路由写作 `#/<page.route>`，非活动页面容器必须 `display: none`；徽标是元素的 `::before`，容器一隐藏徽标随之消失，这条契约就是「只显示当前页徽标」的全部实现。
+- 不要用 `visibility`/`opacity`/`transform` 隐藏非活动页面：那样徽标会残留在页面上。
+
+**降级**：没有 `semantic-ui-map.yaml` 时标注工具不写任何字节，只报告跳过；预览照常。历史 `vN/` 快照没有徽标属性，也不会被补——那是不变历史。
+
 ## 9. 迭代与回滚
 
 - **迭代**（`update` 模式走这条）：先确认本轮放行记录在（`--scope quick` 已带，或自己调过一次闸门）→ 直接改 `current/` → 改完 `prototype_snapshot`，在 `plan.md` 里同步更新受影响的章节；受影响的 `tasks.md` 条目一并更新。快照本身会把这一轮的许可作废，所以下一轮会重新问一次——那是设计，不是 bug。

@@ -25,6 +25,37 @@ Every extension in this repository starts from the same four rules:
 
 It also stays inside its lane: an extension is a plugin loaded into the Pi main process, not a separate service. If a task needs a process boundary, say so in an ADR before adding one.
 
+## Semantic UI Map
+
+**Zero-ambiguity element targeting for vibe-coding.**
+
+When modifying prototypes, vague descriptions ("change that collapse button") force agents to guess or ask repeatedly. The **semantic-ui-map** system assigns every modifiable element a stable dual-code identity:
+
+- **Short code** (user-friendly, page-scoped): `P1-2-B3`
+- **Full path** (machine-friendly, globally unique): `chat.composer.send-btn`
+
+Each product maintains one dictionary shared across pages and fidelities (wireframe → hifi): `.pi/prototype-design/<project>/semantic-ui-map.yaml`. Elements in the HTML carry a badge overlay showing their short code, with a button in the top-right corner to toggle the whole page. Users say "change P1-2-B3" and the agent lands on it—no screenshots, no clarification loops.
+
+**Key features:**
+
+- **Dual-code mapping**: Short code for speech, full path for precision
+- **Visual badges**: Toggle-able overlays with status colors (proposed/confirmed/locked)
+- **Cross-fidelity spine**: IDs stay stable from wireframe to hifi
+- **State machine**: proposed → confirmed → locked
+- **Parser & validator**: Resolves short codes, aliases, and full paths; detects conflicts and circular references
+- **Zero dependencies**: Pure Node.js + TypeScript, no external runtime
+- **Graceful degradation**: Prototypes preview normally without a dictionary
+
+The dictionary records element metadata (type, status, props contract, parent/children relationships, fidelities anchors) and supports both SPA (client-side routes like `#/chat`) and multi-page modes. The validator reports six classes of problem: missing required fields, duplicate IDs/short codes, alias collisions, circular references, illegal state transitions, and malformed fidelity paths. The parser accepts short codes, full paths, or Chinese aliases, returning a unique match, a candidate list, or `unregistered`—never a silent guess.
+
+**Using it takes three steps:**
+
+1. `prototype_setup` scaffolds an empty dictionary; the agent fills in pages and elements after digging into the requirements (field reference: [`docs/semantic-ui-map-schema.md`](./docs/semantic-ui-map-schema.md)).
+2. Every modifiable element in the HTML gets an `id` equal to its short code or full path.
+3. After producing the HTML, call `semantic_ui_map_annotate { project, pageId, kind }`: it adds `data-semantic-badge` / `data-status` to the elements whose `id` matched, and injects the badge system (CSS + a toggle button). Idempotent, safe to re-run.
+
+`prototype_snapshot` auto-increments `meta.version` after writing the snapshot. `meta.annotate_default: false` starts with badges hidden (the button reads `OFF`). With no dictionary the annotate tool writes nothing at all and previews keep working—the dictionary is an enhancement, not a blocker. A complete runnable example lives in [`examples/semantic-ui-map/`](./examples/semantic-ui-map/).
+
 ## Tech stack
 
 - [Node.js](https://nodejs.org/) + [pnpm](https://pnpm.io/), versions pinned in [`mise.toml`](./mise.toml)
@@ -135,14 +166,15 @@ The command never creates directories: the project slug is decided by the agent 
 
 | Tool | Reads | Changes | Refuses |
 | --- | --- | --- | --- |
-| `prototype_setup` | A project-level stage or one page stage (`pageId`), plus `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; copies the bundled `THEMES.md` when absent | Never overwrites an existing document or `THEMES.md`; a shared-contract change must name the complete affected set (`sharedContract` + `affectedPageIds`) |
-| `prototype_snapshot` | `current/` of the selected stage, project-level or one `pageId` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry; the returned rollback command targets that page's previous `vN` | Refuses when `current/` is empty; refuses an incomplete affected-page set for a shared-contract change |
+| `prototype_setup` | A project-level stage or one page stage (`pageId`), plus `<cwd>/THEMES.md` | Creates missing dirs and doc skeletons; scaffolds an empty semantic dictionary (`<project>/semantic-ui-map.yaml`); copies the bundled `THEMES.md` when absent | Never overwrites an existing document, dictionary, or `THEMES.md`; a shared-contract change must name the complete affected set (`sharedContract` + `affectedPageIds`) |
+| `prototype_snapshot` | `current/` of the selected stage, project-level or one `pageId` | Writes `v<N>/` and prepends one `CHANGELOG.md` entry; bumps the dictionary's `meta.version` / `meta.updated`; the returned rollback command targets that page's previous `vN` | Refuses when `current/` is empty; refuses an incomplete affected-page set for a shared-contract change |
 | `prototype_status` | One `(project, kind)`, or one page stage with `pageId`; every live stage when `project` is omitted | Nothing | Never writes |
 | `prototype_preview` | `current/` of the selected stage or page | Opens the file in the OS default browser | Refuses any path outside `current/`; in a multi-page product it refuses to guess and demands `pageId` or `flow` |
 | `prototype_gate` | `gate.json` at the stage root (`pageId` selects a page stage) | Raises the card (three-way on the first round, two-way afterwards) and records both the choice and its baseline, plus the page scope in the summary; `mode: "resume"` unlocks a stage that answered "save only" / "show me the change list" | Ignores a model-supplied `answer` whenever a panel exists; refuses `resume` without a `save` record for the current round |
 | `prototype_page_impact` | The product map and its reverse link references | Nothing (read-only) | Reports the missing pages instead of accepting an incomplete scope for a shared-contract change |
 | `prototype_migration_scan` | Explicitly selected legacy files or directories **inside** the project root | Nothing (read-only); `href` / `src` are read, never rewritten | Refuses any source outside the project root, and any path traversal |
 | `prototype_migration_execute` | The same sources plus user-confirmed `decisions` | Copies into `<product>/pages/<page-id>/<kind>/current/`, registers the pages in the product map, writes a migration report | Writes nothing unless the plan has zero unresolved items **and** `confirm` is true; never overwrites an existing target |
+| `semantic_ui_map_annotate` | `current/**/*.html` of the selected page stage, plus the product-level semantic dictionary | Adds `data-semantic-badge` / `data-status` to elements whose `id` matched a short code or full path, and injects the badge system (CSS + toggle button) | Idempotent, re-running never stacks; writes nothing at all when the dictionary is missing and just reports the skip; in `multi-page` mode it skips elements whose anchor points at another file |
 
 The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets a stage's `current/**` — project-level or page-level — and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
@@ -218,7 +250,8 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
 ├── mise.toml / package.json / biome.jsonc / tsconfig.json / pnpm-workspace.yaml
 ├── AGENTS.md / CONTEXT.md / DESIGN.md
 ├── THEMES.md                  # bundled shadcn token template, copied into target projects
-├── docs/                      # Git workflow, repository guardrails, learning notes
+├── docs/                      # Git workflow, repository guardrails, semantic-map schema
+├── examples/semantic-ui-map/  # runnable example: SPA + badge toggle
 ├── skills/
 │   ├── xpi-prototype-design/SKILL.md       # unified orchestration flow + which design skills to call
 │   └── xpi-prototype-migration/SKILL.md    # scan → confirm → execute → verify, no design skills
@@ -232,6 +265,10 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
     ├── migration.ts           # migration review plan, execution, checks, report
     ├── preview.ts             # OS-default-browser launcher
     ├── requirement-editor.ts  # requirement dialog: submit key wins over newline
+    ├── semantic-ui-map.ts     # semantic dictionary: dual codes, loader, parser, six checks, version bump
+    ├── semantic-ui-map-yaml.ts # minimal YAML parser (this schema's subset)
+    ├── badge-template.ts      # badge CSS/JS templates and HTML injection
+    ├── semantic-annotate.ts   # semantic_ui_map_annotate: lands the dictionary on current/ HTML
     ├── tools.ts               # the registered read/write tools
     └── gate.ts                # plan gate tool + the current/ write block
 ```
