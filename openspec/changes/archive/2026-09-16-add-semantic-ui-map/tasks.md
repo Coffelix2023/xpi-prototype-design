@@ -73,5 +73,5 @@
 - [x] 11.3 运行 `pnpm test` 确认所有单元测试和集成测试通过
 - [x] 11.4 手动创建一个测试原型（`/xpi-prototype-design wireframe test-project`），验证字典自动生成、HTML 徽标可见、开关按钮工作正常
 - [x] 11.5 手动测试解析器：输入短码、全路径、中文别名，验证返回正确结果或候选列表
-- [ ] 11.6 手动测试快照：调用 `prototype_snapshot`，验证 `meta.version` 递增且 CHANGELOG 包含新条目
-- [ ] 11.7 验证优雅降级：删除字典文件后预览原型，确认无报错且徽标不显示
+- [x] 11.6 手动测试快照：调用 `prototype_snapshot`，验证 `meta.version` 递增且 CHANGELOG 包含新条目（实测 1 → 2、`meta.updated` 改写成当前时间，`CHANGELOG.md` 追加 `## <时间> · v1` 条目，`v1/index.html` 独立成形）
+- [x] 11.7 验证优雅降级：删除字典文件后预览原型，确认无报错且徽标不显示（实测 `semantic_ui_map_annotate` 返回 `mapPath: null` 且 HTML 逐字节未改；`prototype_preview` 返回 `status: opened`，页面里没有 `data-badge-system` 也没有 `data-semantic-badge`）
