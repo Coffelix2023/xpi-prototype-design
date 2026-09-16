@@ -75,10 +75,37 @@ export function badgeCss(annotateDefault: boolean): string {
 [data-semantic-badge][data-type="panel"]::before {
   background: #7c3aed;
 }
+/* 朝向由注入的 JS 按元素 rect 写进 data-badge-pos：贴视口边时把徽标翻到反侧，
+   四角都放不下就退回默认的左上。无属性 = 左上，与不装本段时一致。 */
+[data-semantic-badge][data-badge-pos="tr"]::before {
+  left: auto;
+  right: -8px;
+}
+[data-semantic-badge][data-badge-pos="bl"]::before {
+  top: auto;
+  bottom: -8px;
+}
+[data-semantic-badge][data-badge-pos="br"]::before {
+  top: auto;
+  right: -8px;
+  bottom: -8px;
+  left: auto;
+}
+/* 密集区相邻元素的徽标会互相压（伪元素不参与布局，不会自己避让）。
+   抬到开关(2000)之下、其余徽标之上，hover 的那一个总能读全。 */
+[data-semantic-badge]:hover::before {
+  z-index: 1500;
+}
 .badge-toggle {
   position: fixed;
   top: 12px;
-  right: 12px;
+  /* 顶部居中：left/right 同为 0 且宽度收窄，auto margin 平分剩余空间。
+     不用 translateX(-50%)：拖动会写 left，残留 transform 会再偏半格。
+     拖动后 right 被置为 auto，auto margin 归零，left 定位照常生效。 */
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin: 0 auto;
   z-index: 2000;
   display: flex;
   align-items: center;
@@ -207,6 +234,54 @@ export const BADGE_JS = `(function () {
       drag = null;
     });
   }
+
+  // ==================== 徽标朝向 ====================
+  // 徽标画在元素左上外侧，元素贴视口边时会被推出可视区，或被 overflow 祖先裁掉。
+  // 这里按元素 rect 从 4 个角里挑一个「徽标仍完整落在视口内」的角，
+  // 写进 data-badge-pos，CSS 负责按角定位。
+  // GAP 是留给视口边的呼吸量，略大于徽标自身 8px 的外偏。
+  var GAP = 12;
+  var badges = document.querySelectorAll("[data-semantic-badge]");
+  function choosePos(rect) {
+    var top = rect.top >= GAP;
+    var bottom = window.innerHeight - rect.bottom >= GAP;
+    var left = rect.left >= GAP;
+    var right = window.innerWidth - rect.right >= GAP;
+    if (top && left) return "tl";
+    if (top && right) return "tr";
+    if (bottom && left) return "bl";
+    if (bottom && right) return "br";
+    // 元素本身撑满视口，四角都放不下：退回默认左上。
+    return null;
+  }
+  function placeBadges() {
+    for (var i = 0; i < badges.length; i++) {
+      var el = badges[i];
+      var pos = choosePos(el.getBoundingClientRect());
+      if (el.getAttribute("data-badge-pos") === pos) continue;
+      if (pos) el.setAttribute("data-badge-pos", pos);
+      else el.removeAttribute("data-badge-pos");
+    }
+  }
+  // 判定读的是视口坐标，滚动与缩放都会改变结果；rAF 节流保证一帧最多算一次。
+  var frame = 0;
+  function schedulePlaces() {
+    if (frame) return;
+    frame = requestAnimationFrame(function () {
+      frame = 0;
+      placeBadges();
+    });
+  }
+  window.addEventListener("resize", schedulePlaces);
+  // capture：内层滚动容器的事件不冒泡到 window，得在捕获阶段才收得到。
+  window.addEventListener("scroll", schedulePlaces, true);
+  // 图片与字体后加载会挪动布局，靠 load 再收一次。
+  // ponytail: 元素表只快照一次；SPA 切页插入的新元素不在表内，需要时改成每次重查。
+  window.addEventListener("load", function () {
+    badges = document.querySelectorAll("[data-semantic-badge]");
+    schedulePlaces();
+  });
+  placeBadges();
 
   apply();
 })();

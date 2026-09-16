@@ -74,6 +74,19 @@ describe("badgeCss", () => {
     expect(css).toContain("user-select: none;");
     expect(css).toContain("touch-action: none;");
   });
+
+  it("贴边的徽标按 data-badge-pos 翻角，无属性仍是左上", () => {
+    const css = badgeCss(true);
+    // tl 不单列规则：基础规则就是左上，注入只写另外三个角。
+    expect(css).toContain('[data-semantic-badge][data-badge-pos="tr"]::before');
+    expect(css).toContain('[data-semantic-badge][data-badge-pos="bl"]::before');
+    expect(css).toContain('[data-semantic-badge][data-badge-pos="br"]::before');
+    expect(css).toContain("bottom: -8px;");
+    expect(css).toContain("left: auto;");
+    // 密集区的 hover 提层：必须低于开关(2000)，否则会把开关盖住。
+    expect(css).toContain("[data-semantic-badge]:hover::before");
+    expect(css).toContain("z-index: 1500;");
+  });
 });
 
 describe("BADGE_JS", () => {
@@ -102,6 +115,18 @@ describe("BADGE_JS", () => {
     expect(BADGE_JS).toContain("suppressClick");
     expect(BADGE_JS).toContain("localStorage.getItem");
     expect(BADGE_JS).toContain("localStorage.setItem");
+  });
+
+  it("徽标朝向：按视口四边选角，滚动与缩放后重算", () => {
+    expect(BADGE_JS).toContain('querySelectorAll("[data-semantic-badge]")');
+    expect(BADGE_JS).toContain("getBoundingClientRect");
+    expect(BADGE_JS).toContain('setAttribute("data-badge-pos"');
+    expect(BADGE_JS).toContain('removeAttribute("data-badge-pos")');
+    expect(BADGE_JS).toContain('addEventListener("resize"');
+    // 内层滚动容器的事件不冒泡到 window，必须在捕获阶段监听。
+    expect(BADGE_JS).toContain('addEventListener("scroll", schedulePlaces, true)');
+    // 判定读视口坐标，滚动每帧都会触发，靠 rAF 节流。
+    expect(BADGE_JS).toContain("requestAnimationFrame");
   });
 });
 
@@ -250,5 +275,130 @@ describe("addBadgeAttributes", () => {
     expect(html).toContain(
       'id="P1-2-B1" data-semantic-badge="P1-2-B1" data-status="confirmed"',
     );
+  });
+});
+
+/** 只 stub 朝向段会碰到的东西：假按钮的 closest() 返回 null，拖动段整段短路。 */
+type RectLike = {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+};
+type BadgeNode = {
+  getAttribute: (name: string) => string | null;
+  getBoundingClientRect: () => RectLike;
+  removeAttribute: (name: string) => void;
+  setAttribute: (name: string, value: string) => void;
+};
+
+/** 用「上边 + 左边 + 宽高」描述盒子，免得测试里到处铺四行字面量。 */
+function rect(top: number, left: number, width: number, height: number): RectLike {
+  return {
+    bottom: top + height,
+    left,
+    right: left + width,
+    top,
+  };
+}
+
+/** 参数注入替掉脚本依赖的浏览器全局，跑的就是真正会注入进原型的那段。 */
+function runBadgeJs(
+  rects: RectLike[],
+  viewport: {
+    height: number;
+    width: number;
+  },
+): Map<RectLike, string | null> {
+  const assigned = new Map<RectLike, string | null>();
+  const nodes: BadgeNode[] = rects.map((box) => ({
+    getAttribute: () => assigned.get(box) ?? null,
+    getBoundingClientRect: () => box,
+    removeAttribute: () => assigned.set(box, null),
+    setAttribute: (_name, value) => assigned.set(box, value),
+  }));
+  const win = {
+    innerHeight: viewport.height,
+    innerWidth: viewport.width,
+    addEventListener: () => {},
+  };
+  const doc = {
+    documentElement: {
+      style: {
+        setProperty: () => {},
+      },
+    },
+    getElementById: () => ({
+      textContent: "",
+      addEventListener: () => {},
+      classList: {
+        toggle: () => {},
+      },
+      closest: () => null,
+    }),
+    querySelectorAll: () => nodes,
+  };
+  new Function(
+    "window",
+    "document",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    BADGE_JS,
+  )(
+    win,
+    doc,
+    () => ({
+      getPropertyValue: () => "block",
+    }),
+    (fn: () => void) => fn(),
+  );
+  return assigned;
+}
+
+describe("BADGE_JS 朝向判定", () => {
+  const viewport = {
+    height: 600,
+    width: 800,
+  };
+
+  it("视口中间的元素保持默认左上", () => {
+    const middle = rect(300, 400, 100, 40);
+    expect(
+      runBadgeJs(
+        [
+          middle,
+        ],
+        viewport,
+      ).get(middle),
+    ).toBe("tl");
+  });
+
+  it("贴左边的翻到右上，贴上边的翻到左下，左上角翻到右下", () => {
+    const left = rect(300, 2, 98, 40);
+    const top = rect(2, 400, 100, 38);
+    const corner = rect(2, 2, 98, 38);
+    const assigned = runBadgeJs(
+      [
+        left,
+        top,
+        corner,
+      ],
+      viewport,
+    );
+    expect(assigned.get(left)).toBe("tr");
+    expect(assigned.get(top)).toBe("bl");
+    expect(assigned.get(corner)).toBe("br");
+  });
+
+  it("撑满视口的元素四角都放不下，退回无属性", () => {
+    const full = rect(0, 0, 800, 600);
+    expect(
+      runBadgeJs(
+        [
+          full,
+        ],
+        viewport,
+      ).get(full),
+    ).toBeUndefined();
   });
 });
