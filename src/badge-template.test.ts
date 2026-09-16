@@ -9,6 +9,8 @@ import {
 } from "./badge-template.js";
 import type { ElementType, SemanticElement, Status } from "./semantic-ui-map.js";
 
+/** 裸写 `[data-semantic-badge] {` 会让徽标特异性与原型规则打平并覆盖原型定位。 */
+const BARE_BADGE_SELECTOR = /^\[data-semantic-badge\] \{$/m;
 function element(
   short: string,
   id: string,
@@ -53,6 +55,12 @@ describe("badgeCss", () => {
     expect(css).toContain('[data-semantic-badge][data-status="confirmed"]');
     expect(css).toContain('[data-semantic-badge][data-status="locked"]');
     expect(css).toContain('[data-semantic-badge][data-type="panel"]');
+  });
+
+  it("定位基准用 :where() 降特异性，不覆盖原型自身的 position", () => {
+    const css = badgeCss(true);
+    expect(css).toContain(":where([data-semantic-badge])");
+    expect(css).not.toMatch(BARE_BADGE_SELECTOR);
   });
 
   it("annotate_default 为 false 时初始隐藏", () => {

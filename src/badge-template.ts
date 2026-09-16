@@ -29,12 +29,19 @@ export const BADGE_MARK = "data-badge-system";
 /**
  * 徽标 CSS。`:root` 的 `--badge-display` 是唯一开关，`[data-semantic-badge]`
  * 上的 `::before` 用 `attr()` 取短码，状态和类型只是换一个背景色。
+ *
+ * `position: relative` 必须包在 `:where()` 里：它给徽标提供定位基准，但徽标
+ * `<style>` 注入在 `<head>` 末尾，裸写 `[data-semantic-badge]` 的特异性与原型
+ * 自身的 `.drawer { position: fixed }` / `.view` / `.pane` 相同，会按注入顺序
+ * 覆盖掉原型的定位，把原型布局测穿（真实渲染自检里表现为面板高度、sticky 与
+ * 折叠态断言集体失败）。`:where()` 特异性为 0，原型有声明时原型赢，原型没
+ * 声明时这条仍生效。
  */
 export function badgeCss(annotateDefault: boolean): string {
   return `:root {
   --badge-display: ${annotateDefault ? "block" : "none"};
 }
-[data-semantic-badge] {
+:where([data-semantic-badge]) {
   position: relative;
 }
 [data-semantic-badge]::before {
