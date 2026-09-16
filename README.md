@@ -208,7 +208,7 @@ The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `
         └── 2026-09-13-subscription-page-hifi/
 ```
 
-Version numbers count per **page stage**, not per product: `wireframe` and `hifi` under one page each keep their own `vN`, and a legacy `<product>/<kind>/` stage keeps counting on its own too. Archiving moves a whole `<kind>/` directory into `archive/` and is reversible via the command recorded in the log.
+Version numbers count per **page stage**, not per product: `wireframe` and `hifi` under one page each keep their own `vN`, and a legacy `<product>/<kind>/` stage keeps counting on its own too. Archiving moves a whole `<kind>/` directory into `archive/` and is reversible via the command recorded in the log. A stage keeps at most **10 live versions**: the 11th snapshot moves the oldest five into that stage's `archive/` (moved, not deleted), so `prototype_status` lists only the live chain and the same `CHANGELOG.md` entry carries the archive directory plus the `mv` command that brings a version back.
 
 ### Migration
 

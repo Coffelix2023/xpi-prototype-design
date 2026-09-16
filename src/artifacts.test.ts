@@ -215,6 +215,84 @@ describe("snapshotArtifact", () => {
   });
 });
 
+describe("旧版本归档", () => {
+  /** 连存 n 次；每次都换内容，免得撞上「空快照」的拒绝。 */
+  async function snapshotTimes(times: number) {
+    let last: Awaited<ReturnType<typeof snapshotArtifact>> | null = null;
+    for (let i = 1; i <= times; i += 1) {
+      await produce(PROJECT, "wireframe", `<svg data-v="${i}"/>`);
+      last = await snapshotArtifact(root, PROJECT, "wireframe", {
+        change: `第 ${i} 版`,
+      });
+    }
+    return last;
+  }
+
+  it("十版及以内不动：版本链完整，没有 archive 目录", async () => {
+    await snapshotTimes(10);
+    expect((await readArtifactState(root, PROJECT, "wireframe")).versions).toEqual([
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+    ]);
+    await expect(stat(join(stage(PROJECT, "wireframe"), "archive"))).rejects.toThrow();
+  });
+
+  it("第 11 版触发：最旧 5 个移进 archive/，CHANGELOG 记下归档行", async () => {
+    const result = await snapshotTimes(11);
+    expect(result?.version).toBe(11);
+    expect(result?.archivedVersions).toEqual([
+      1,
+      2,
+      3,
+      4,
+      5,
+    ]);
+    expect(result?.versionArchiveDir).toBe(
+      ".pi/prototype-design/subscription-page/wireframe/archive",
+    );
+
+    // 版本链只剩 6..11：归档目录不匹配 VERSION_DIR_PATTERN，自动退出链。
+    expect((await readArtifactState(root, PROJECT, "wireframe")).versions).toEqual([
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+    ]);
+
+    const archive = join(stage(PROJECT, "wireframe"), "archive");
+    expect((await readdir(archive)).sort()).toEqual([
+      "v1",
+      "v2",
+      "v3",
+      "v4",
+      "v5",
+    ]);
+    // 归档不是删除：字节还在。
+    expect(await readFile(join(archive, "v1/index.html"), "utf8")).toContain(
+      'data-v="1"',
+    );
+
+    const changelog = await readFile(
+      join(stage(PROJECT, "wireframe"), "CHANGELOG.md"),
+      "utf8",
+    );
+    expect(changelog).toContain("旧版本归档：v1 v2 v3 v4 v5");
+    expect(changelog).toContain(
+      "取回：mv .pi/prototype-design/subscription-page/wireframe/archive/v1 .pi/prototype-design/subscription-page/wireframe/",
+    );
+  });
+});
+
 describe("findPreviewTarget", () => {
   it("returns null when nothing was produced yet", async () => {
     await setupArtifacts(root, PROJECT, "wireframe");

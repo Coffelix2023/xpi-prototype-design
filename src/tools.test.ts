@@ -170,3 +170,61 @@ describe("prototype_preview guards", () => {
     ).rejects.toThrow(UNKNOWN_PAGE);
   });
 });
+
+/** prototype_snapshot 的输出文本：归档发生时要能从返回值里看出来。 */
+describe("prototype_snapshot output", () => {
+  interface SnapshotOutput {
+    content: {
+      text: string;
+    }[];
+  }
+  type SnapshotHandler = (
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: unknown,
+    onUpdate: unknown,
+    ctx: ExtensionContext,
+  ) => Promise<SnapshotOutput>;
+
+  function snapshotTool(): SnapshotHandler {
+    let handler: SnapshotHandler | undefined;
+    registerPrototypeTools({
+      registerTool: (tool: { execute: SnapshotHandler; name: string }) => {
+        if (tool.name === "prototype_snapshot") handler = tool.execute;
+      },
+    } as unknown as ExtensionAPI);
+    if (!handler) throw new Error("prototype_snapshot was not registered");
+    return handler;
+  }
+
+  async function snapshotAt(index: number, snapshot: SnapshotHandler) {
+    await produce("subscription-page", "wireframe", `<svg data-v="${index}"/>`);
+    return snapshot(
+      "call",
+      {
+        change: `第 ${index} 版`,
+        kind: "wireframe",
+        project: "subscription-page",
+      },
+      undefined,
+      undefined,
+      ctx(),
+    );
+  }
+
+  it("没有裁剪时不出现归档行", async () => {
+    const result = await snapshotAt(1, snapshotTool());
+    expect(result.content[0]?.text).not.toContain("旧版本归档");
+  });
+
+  it("第 11 版后输出归档版本号与目录", async () => {
+    const snapshot = snapshotTool();
+    let result: SnapshotOutput | null = null;
+    for (let i = 1; i <= 11; i += 1) {
+      result = await snapshotAt(i, snapshot);
+    }
+    expect(result?.content[0]?.text).toContain(
+      "旧版本归档：v1 v2 v3 v4 v5 已移动到 .pi/prototype-design/subscription-page/wireframe/archive/",
+    );
+  });
+});

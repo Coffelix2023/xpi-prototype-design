@@ -174,6 +174,51 @@ describe("page-scoped artifacts", () => {
     // 回滚目标是本页的上一版，不是别的页面也不是项目级阶段。
     expect(second.rollbackCommand).toContain("pages/home/wireframe/v1");
   });
+
+  it("第 11 个页面版本触发归档：最旧 5 个进本页 archive/，回滚仍指向未归档的上一版", async () => {
+    root = await mkdtemp(join(tmpdir(), "xpi-pages-"));
+    await setupPageArtifacts(root, "checkout", "home", "wireframe");
+    const stageDir = join(root, ".pi/prototype-design/checkout/pages/home/wireframe");
+    const current = join(stageDir, "current");
+    await mkdir(current, {
+      recursive: true,
+    });
+
+    let last: Awaited<ReturnType<typeof snapshotPageArtifact>> | null = null;
+    for (let i = 1; i <= 11; i += 1) {
+      await writeFile(join(current, "home.html"), `v${i}`, "utf8");
+      last = await snapshotPageArtifact(root, "checkout", "home", "wireframe", {
+        change: `第 ${i} 版`,
+      });
+    }
+
+    expect(last?.version).toBe(11);
+    expect(last?.archivedVersions).toEqual([
+      1,
+      2,
+      3,
+      4,
+      5,
+    ]);
+    expect(last?.versionArchiveDir).toBe(
+      ".pi/prototype-design/checkout/pages/home/wireframe/archive",
+    );
+    // v10 没被归档，回滚目标照旧可达。
+    expect(last?.rollbackCommand).toContain("pages/home/wireframe/v10");
+    await expect(
+      readPageArtifactState(root, "checkout", "home", "wireframe"),
+    ).resolves.toMatchObject({
+      versions: [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+      ],
+    });
+    expect(await readFile(join(stageDir, "archive/v1/home.html"), "utf8")).toBe("v1");
+  });
 });
 
 describe("shared page impact", () => {

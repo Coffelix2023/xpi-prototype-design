@@ -374,6 +374,12 @@ export function registerPrototypeTools(pi: ExtensionAPI): void {
           result.rollbackCommand
             ? `回滚上一版：${result.rollbackCommand}`
             : "首个版本，无可回滚目标",
+          // 裁剪过旧版本时把归档目录一并报出来，否则用户不知道版本链为什么变短了。
+          ...(result.versionArchiveDir !== null && result.archivedVersions.length > 0
+            ? [
+                `旧版本归档：${result.archivedVersions.map((version) => `v${version}`).join(" ")} 已移动到 ${result.versionArchiveDir}/`,
+              ]
+            : []),
         ].join("\n"),
       );
       return {

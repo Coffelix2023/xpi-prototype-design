@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import { ensureThemesFile } from "./artifacts.js";
+import { archiveExcessVersions, ensureThemesFile } from "./artifacts.js";
 import {
   type ArtifactState,
   assertProjectSlug,
@@ -196,17 +196,31 @@ export async function snapshotPageArtifact(
       `No output to snapshot: ${pageStagePath(project, pageId, kind)}/current is empty.`,
     );
   }
-  const version = highestVersion(await versions(directory)) + 1;
+  const existingVersions = await versions(directory);
+  const version = highestVersion(existingVersions) + 1;
   const versionPath = join(directory, `v${version}`);
   await cp(current, versionPath, {
     recursive: true,
   });
+  // 与项目级阶段共用同一实现：保留上限与批量只有一处定义。
+  const archived = await archiveExcessVersions(projectRoot, directory, [
+    ...existingVersions,
+    version,
+  ]);
   const changelogPath = join(directory, CHANGELOG_FILE);
   const existing = (await exists(changelogPath))
     ? await readFile(changelogPath, "utf8")
     : `# CHANGELOG — ${project}/${pageId}/${kind}\n\n<!-- ENTRIES -->\n`;
   const stamp = formatStamp(new Date());
   const entry = renderChangelogEntry({
+    archived:
+      archived.versions.length > 0
+        ? {
+            dir: archived.dir,
+            stage: pageStagePath(project, pageId, kind),
+            versions: archived.versions,
+          }
+        : undefined,
     change: input.change,
     files: input.files,
     kind,
@@ -218,6 +232,7 @@ export async function snapshotPageArtifact(
   });
   await writeFile(changelogPath, insertChangelogEntry(existing, entry), "utf8");
   return {
+    archivedVersions: archived.versions,
     changelogPath: relative(resolve(projectRoot), changelogPath).split(sep).join("/"),
     entry: renderEntryTitle({
       change: input.change,
@@ -234,6 +249,7 @@ export async function snapshotPageArtifact(
         ? rollbackCommand(`${project}/pages/${pageId}`, kind, version - 1)
         : null,
     version,
+    versionArchiveDir: archived.versions.length > 0 ? archived.dir : null,
     versionPath: relative(resolve(projectRoot), versionPath).split(sep).join("/"),
   };
 }

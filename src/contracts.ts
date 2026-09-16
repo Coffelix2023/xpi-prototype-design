@@ -123,6 +123,24 @@ export const CURRENT_DIR = "current";
 
 export const VERSION_DIR_PATTERN = /^v(\d+)$/;
 
+/**
+ * 一个阶段的活跃版本上限。超过它就归档最旧的几个。
+ *
+ * 版本链是「可回滚」的凭据，不是无限台账：攒到十几个之后版本行先失去可读性，
+ * 回滚目标也淹在噪声里。归档而不是删除——旧版本移到 `<stage>/archive/`，
+ * `listVersions` 只认阶段根下的目录，于是它们自动退出版本链。
+ */
+export const VERSION_RETENTION_LIMIT = 10;
+
+/** 触发裁剪时一次归档多少个最旧版本。 */
+export const VERSION_ARCHIVE_BATCH = 5;
+
+/**
+ * 阶段内的旧版本归档目录名。与顶层 `ARCHIVE_DIR` 取值相同但互不影响：
+ * 前者是「这个阶段的旧版本放哪儿」，后者是「整个阶段归档放哪儿」。
+ */
+export const VERSION_ARCHIVE_DIR = "archive";
+
 /** CHANGELOG 中插入新条目的锚点：新条目永远贴在它下方（倒序）。 */
 export const CHANGELOG_MARKER = "<!-- ENTRIES -->";
 
@@ -278,6 +296,32 @@ export const UPDATE_SCOPE_CHOICES = [
   scope: UpdateScope;
 }[];
 
+/**
+ * 迭代轮的版本号询问（命令层面板）。
+ *
+ * 「每轮必存版本」对小改动是纯噪音，所以「要不要为这一轮存一个 vN」由用户决定。
+ * 答案随 kickoff 传给 agent（`--version-bump yes|no`），它改完后再决定要不要调
+ * `prototype_snapshot`。放宽的只有存档，闸门照旧：`current/` 的写入许可一点没松。
+ */
+export type VersionBump = "yes" | "no";
+
+export const UPDATE_VERSION_BUMP_TITLE =
+  "xpi-prototype-design：本轮要升级版本号（存档为 vN）吗";
+
+export const UPDATE_VERSION_BUMP_CHOICES = [
+  {
+    bump: "yes",
+    label: "升级版本号（改完存为 vN）",
+  },
+  {
+    bump: "no",
+    label: "不升级（只改 current/，不留版本）",
+  },
+] as const satisfies readonly {
+  bump: VersionBump;
+  label: string;
+}[];
+
 /** 每个阶段需要保证存在的文档骨架。 */
 export const DOC_FILES = {
   hifi: [
@@ -379,6 +423,8 @@ export interface SetupResult {
 }
 
 export interface SnapshotResult {
+  /** 本轮被归档的旧版本；没有裁剪时为空数组。 */
+  archivedVersions: number[];
   changelogPath: string;
   entry: string;
   kind: Kind;
@@ -386,6 +432,8 @@ export interface SnapshotResult {
   /** 回滚到上一版的命令；v1 时为 null。 */
   rollbackCommand: string | null;
   version: number;
+  /** 旧版本归档目录，相对项目根；没有裁剪时为 null。 */
+  versionArchiveDir: string | null;
   versionPath: string;
 }
 
@@ -463,6 +511,16 @@ export function highestVersion(versions: readonly number[]): number {
 }
 
 export interface ChangelogEntryInput {
+  /**
+   * 本轮被裁剪的旧版本；没有裁剪时不传。
+   *
+   * `stage` 是这些版本的所属阶段（相对项目根），取回命令要从它派生。
+   */
+  archived?: {
+    dir: string;
+    stage: string;
+    versions: readonly number[];
+  };
   change: string;
   files?: readonly string[];
   kind: Kind;
@@ -494,6 +552,13 @@ export function renderChangelogEntry(input: ChangelogEntryInput): string {
       `- 回滚到 v${input.rollbackFrom}：${rollbackCommand(input.project, input.kind, input.rollbackFrom)}`,
     );
   }
+  if (input.archived && input.archived.versions.length > 0) {
+    const list = input.archived.versions.map((version) => `v${version}`).join(" ");
+    const oldest = input.archived.versions[0];
+    lines.push(
+      `- 旧版本归档：${list} 已移动到 ${input.archived.dir}/（取回：mv ${input.archived.dir}/v${oldest} ${input.archived.stage}/）`,
+    );
+  }
   return lines.join("\n");
 }
 
@@ -501,6 +566,21 @@ export function renderChangelogEntry(input: ChangelogEntryInput): string {
 export function rollbackCommand(project: string, kind: Kind, version: number): string {
   const base = `${ARTIFACT_ROOT}/${project}/${kind}`;
   return `cp -R ${base}/v${version}/. ${base}/${CURRENT_DIR}/`;
+}
+
+/** 阶段内的旧版本归档目录，相对项目根。 */
+export function versionArchivePath(stage: string): string {
+  return `${stage}/${VERSION_ARCHIVE_DIR}`;
+}
+
+/** 从归档区取回一个版本：`mv <stage>/archive/vN <stage>/`。 */
+export function versionArchiveRestoreCommand(
+  project: string,
+  kind: Kind,
+  version: number,
+): string {
+  const base = stagePath(project, kind);
+  return `mv ${base}/${VERSION_ARCHIVE_DIR}/v${version} ${base}/`;
 }
 
 /** 阶段目录，相对项目根。回滚、归档、预览都从这里派生。 */

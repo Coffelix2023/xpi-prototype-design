@@ -83,6 +83,9 @@ export function badgeCss(annotateDefault: boolean): string {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
   padding: 6px 10px;
   background: #ffffff;
   border: 1px solid #e5e7eb;
@@ -125,10 +128,86 @@ export const BADGE_JS = `(function () {
     btn.textContent = visible ? "ON" : "OFF";
     btn.classList.toggle("off", !visible);
   }
+  var suppressClick = false;
   btn.addEventListener("click", function () {
+    // 拖拽的 pointerup 之后浏览器还会派发一次 click，这里把它吃掉，
+    // 否则「把开关挪个位置」会顺手把标注关掉。
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     visible = !visible;
     apply();
   });
+
+  // ==================== 拖动 ====================
+  // 开关固定在右上角，挡住页面信息时用户可以拖走；位置记在 localStorage。
+  var box = btn.closest(".badge-toggle");
+  if (box) {
+    var STORE_KEY = "badge-toggle-pos";
+    var DRAG_THRESHOLD = 4;
+    var drag = null;
+
+    // 收边后才落笔：换到更小的窗口后，旧坐标会落在画布外。
+    function clampAndPlace(left, top) {
+      var maxLeft = Math.max(0, window.innerWidth - box.offsetWidth);
+      var maxTop = Math.max(0, window.innerHeight - box.offsetHeight);
+      var x = Math.min(Math.max(0, left), maxLeft);
+      var y = Math.min(Math.max(0, top), maxTop);
+      box.style.right = "auto";
+      box.style.left = x + "px";
+      box.style.top = y + "px";
+    }
+
+    try {
+      var saved = JSON.parse(window.localStorage.getItem(STORE_KEY) || "null");
+      if (saved && typeof saved.left === "number" && typeof saved.top === "number") {
+        clampAndPlace(saved.left, saved.top);
+      }
+    } catch (error) {
+      // 隐私模式、file:// 或坏 JSON：读不出来就用 CSS 的默认右上角，不抛错。
+    }
+
+    box.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+      suppressClick = false;
+      drag = {
+        left: box.offsetLeft,
+        top: box.offsetTop,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      if (box.setPointerCapture) box.setPointerCapture(event.pointerId);
+    });
+
+    box.addEventListener("pointermove", function (event) {
+      if (!drag) return;
+      var dx = event.clientX - drag.x;
+      var dy = event.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+      suppressClick = true;
+      clampAndPlace(drag.left + dx, drag.top + dy);
+    });
+
+    box.addEventListener("pointerup", function () {
+      if (!drag) return;
+      drag = null;
+      if (!suppressClick) return;
+      try {
+        window.localStorage.setItem(
+          STORE_KEY,
+          JSON.stringify({ left: box.offsetLeft, top: box.offsetTop })
+        );
+      } catch (error) {
+        // 存不下只影响「下次打开还在原地」，不影响本轮拖动。
+      }
+    });
+
+    box.addEventListener("pointercancel", function () {
+      drag = null;
+    });
+  }
+
   apply();
 })();
 `;

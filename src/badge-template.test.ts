@@ -67,6 +67,13 @@ describe("badgeCss", () => {
     expect(badgeCss(false)).toContain("--badge-display: none");
     expect(badgeCss(false)).not.toContain("--badge-display: block");
   });
+
+  it("开关外壳声明了可拖拽样式", () => {
+    const css = badgeCss(true);
+    expect(css).toContain("cursor: move;");
+    expect(css).toContain("user-select: none;");
+    expect(css).toContain("touch-action: none;");
+  });
 });
 
 describe("BADGE_JS", () => {
@@ -80,6 +87,21 @@ describe("BADGE_JS", () => {
 
   it("找不到按钮时直接返回，不抛错", () => {
     expect(BADGE_JS).toContain("if (!btn) return;");
+  });
+
+  it("拖动开关：指针位移、视口收边、位置持久化与抑制误点击", () => {
+    expect(BADGE_JS).toContain('addEventListener("pointerdown"');
+    expect(BADGE_JS).toContain('addEventListener("pointermove"');
+    expect(BADGE_JS).toContain('addEventListener("pointerup"');
+    expect(BADGE_JS).toContain("setPointerCapture");
+    // 收边：位置必须在视口内，换小窗口后旧坐标也不会跑到画布外。
+    expect(BADGE_JS).toContain("clampAndPlace");
+    expect(BADGE_JS).toContain("Math.max(0, window.innerWidth - box.offsetWidth)");
+    expect(BADGE_JS).toContain('box.style.right = "auto"');
+    // 一次拖拽之后浏览器仍会派发 click，那个 click 不能切换显隐。
+    expect(BADGE_JS).toContain("suppressClick");
+    expect(BADGE_JS).toContain("localStorage.getItem");
+    expect(BADGE_JS).toContain("localStorage.setItem");
   });
 });
 

@@ -412,9 +412,14 @@ semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }
 
 ## 9. 迭代与回滚
 
-- **迭代**（`update` 模式走这条）：先确认本轮放行记录在（`--scope quick` 已带，或自己调过一次闸门）→ 直接改 `current/` → 改完 `prototype_snapshot`，在 `plan.md` 里同步更新受影响的章节；受影响的 `tasks.md` 条目一并更新。快照本身会把这一轮的许可作废，所以下一轮会重新问一次——那是设计，不是 bug。
+- **迭代**（`update` 模式走这条）：先确认本轮放行记录在（`--scope quick` 已带，或自己调过一次闸门）→ 直接改 `current/` → 在 `plan.md` 里同步更新受影响的章节；受影响的 `tasks.md` 条目一并更新。快照本身会把这一轮的许可作废，所以下一轮会重新问一次——那是设计，不是 bug。
+- **版本号由用户定**：`update` 命令的 kickoff 末尾带 `--version-bump yes|no`，那是用户在面板里点的，不是你的判断：
+  - `yes`（或没有这个标记）：改完照旧 `prototype_snapshot`。
+  - `no`：**不要调 `prototype_snapshot`**，只改 `current/`；交付时说清「本轮未存版本，需要回滚就找上一版 `vN`」。
+  - 用户在聊天里直接提修改意见（没有这个标记）时**先问一句**「这轮要升级版本号（存档为 `vN`）吗」，按用户答复走；不要替用户判断改动大不大。用户没答就按不存版本处理，并且不要把「没问过」写成「已确认不升级」。
 - **回滚**：跑快照返回的 `cp -R .../v(N-1)/. .../current/` 命令，然后再快照一次记录这次回滚。
 - 版本号只增不减；不要在 `v*/` 目录里就地改文件——那些是不可变历史。
+- **版本链有上限**：一个阶段的活跃版本最多 10 个。第 11 次快照时最旧的 5 个会被自动移进 `<stage>/archive/`（移走，不删除），`prototype_status` 因此只列留在链上的版本；`CHANGELOG.md` 那条记录里带着归档目录与 `mv` 取回命令，要找回被归档的版本就照它搬回来，别去改 `v*/`。
 
 ## 10. 归档（命令层做的，你只需知道它意味着什么）
 
@@ -449,6 +454,6 @@ semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }
 - [ ] `semantic_ui_map_validate` 返回 `valid`（`missing` 不算通过）
 - [ ] `semantic_ui_map_annotate` 已执行，徽标系统注入完成（字典缺失时跳过）
 - [ ] 交付时把本轮可修改元素的短码报给了用户
-- [ ] `prototype_snapshot` 已执行，`CHANGELOG.md` 顶部是本轮
+- [ ] `prototype_snapshot` 已执行，`CHANGELOG.md` 顶部是本轮（本轮 `--version-bump no` 时跳过，并在交付里说明「本轮未存版本」）
 - [ ] 迁移任务：待决项全部由用户确认、`confirm` 为 true，且只有 `complete` 为 true 才报「迁移完成」
 - [ ] 只调用了本表里真实存在且本轮用得上的技能；缺失的已如实说明

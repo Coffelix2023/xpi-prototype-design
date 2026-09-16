@@ -51,7 +51,10 @@ import {
   TASKS_FILE,
   type TaskProgress,
   THEMES_FILE,
+  VERSION_ARCHIVE_BATCH,
+  VERSION_ARCHIVE_DIR,
   VERSION_DIR_PATTERN,
+  VERSION_RETENTION_LIMIT,
 } from "./contracts.js";
 import { docTemplate } from "./templates.js";
 
@@ -109,6 +112,47 @@ async function listVersions(directory: string): Promise<number[]> {
     if (match) versions.push(Number(match[1]));
   }
   return versions.sort((a, b) => a - b);
+}
+
+/** 旧版本归档的结果：目录（相对项目根）与被搬走的版本号。 */
+export interface VersionArchiveResult {
+  dir: string;
+  versions: number[];
+}
+
+/**
+ * 活跃版本超出保留上限时，把最旧的 `VERSION_ARCHIVE_BATCH` 个移进 `<stage>/archive/`。
+ *
+ * 只搬阶段根下的 `vN/`：`listVersions` 读的是同一层，于是归档后的版本自动退出版本链，
+ * 而目录里的字节一个不少——归档不是删除。每个版本一条同盘 `rename`，失败即抛出
+ * 真实错误，不静默跳过。
+ */
+export async function archiveExcessVersions(
+  projectRoot: string,
+  stageDir: string,
+  versions: readonly number[],
+): Promise<VersionArchiveResult> {
+  if (versions.length <= VERSION_RETENTION_LIMIT)
+    return {
+      dir: "",
+      versions: [],
+    };
+  const oldest = [
+    ...versions,
+  ]
+    .sort((a, b) => a - b)
+    .slice(0, VERSION_ARCHIVE_BATCH);
+  const archiveDir = join(stageDir, VERSION_ARCHIVE_DIR);
+  await mkdir(archiveDir, {
+    recursive: true,
+  });
+  for (const version of oldest) {
+    await rename(join(stageDir, `v${version}`), join(archiveDir, `v${version}`));
+  }
+  return {
+    dir: toPattern(projectRoot, archiveDir),
+    versions: oldest,
+  };
 }
 
 /**
@@ -190,14 +234,29 @@ export async function snapshotArtifact(
     );
   }
 
-  const version = highestVersion(await listVersions(directory)) + 1;
+  const existingVersions = await listVersions(directory);
+  const version = highestVersion(existingVersions) + 1;
   const versionPath = join(directory, `v${version}`);
   await cp(currentPath, versionPath, {
     recursive: true,
   });
 
+  // 先落新版本再裁剪：裁剪只看最旧的那几个，绝不动刚写出来的 vN。
+  const archived = await archiveExcessVersions(projectRoot, directory, [
+    ...existingVersions,
+    version,
+  ]);
+
   const stamp = formatStamp(new Date());
   const entry = renderChangelogEntry({
+    archived:
+      archived.versions.length > 0
+        ? {
+            dir: archived.dir,
+            stage: toPattern(projectRoot, directory),
+            versions: archived.versions,
+          }
+        : undefined,
     change: input.change,
     files: input.files,
     kind,
@@ -215,6 +274,7 @@ export async function snapshotArtifact(
   await writeFile(changelogPath, insertChangelogEntry(existing, entry), "utf8");
 
   return {
+    archivedVersions: archived.versions,
     changelogPath: toPattern(projectRoot, changelogPath),
     entry: renderEntryTitle({
       change: input.change,
@@ -228,6 +288,7 @@ export async function snapshotArtifact(
     project,
     rollbackCommand: version > 1 ? rollbackCommand(project, kind, version - 1) : null,
     version,
+    versionArchiveDir: archived.versions.length > 0 ? archived.dir : null,
     versionPath: toPattern(projectRoot, versionPath),
   };
 }

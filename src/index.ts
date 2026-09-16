@@ -21,7 +21,10 @@ import {
   toChoices,
   UPDATE_SCOPE_CHOICES,
   UPDATE_SCOPE_TITLE,
+  UPDATE_VERSION_BUMP_CHOICES,
+  UPDATE_VERSION_BUMP_TITLE,
   type UpdateScope,
+  type VersionBump,
 } from "./contracts.js";
 import { registerPrototypeGate } from "./gate.js";
 import { promptRequirement, requirementTitle } from "./requirement-editor.js";
@@ -200,6 +203,34 @@ async function chooseUpdateScope(
     (item) => item.label,
   );
   const chosen = await ctx.ui.select(UPDATE_SCOPE_TITLE, choiceLabels(choices));
+  // 取消：不猜，整轮放弃。
+  return pickChoice(choices, chosen) ?? null;
+}
+
+/** 迭代轮版本号问题的选项；`bump` 只进 kickoff，不落盘。 */
+interface VersionBumpChoice {
+  bump: VersionBump;
+  label: string;
+}
+
+/**
+ * 迭代轮的版本号询问（命令层面板）。返回 `null` 表示用户取消。
+ *
+ * 与 `--scope` 同一个理由放在命令层：小改动不值得占一个 `vN`，而「要不要存」
+ * 只有用户说得清。答案随 kickoff 带给 agent，由它改完后决定要不要
+ * `prototype_snapshot`。无面板的模式（json / print）不问，agent 按 SKILL.md §9
+ * 的缺省（升级）处理。
+ */
+async function chooseVersionBump(
+  ctx: ExtensionCommandContext,
+): Promise<VersionBumpChoice | null> {
+  const choices = toChoices<VersionBumpChoice>(
+    [
+      ...UPDATE_VERSION_BUMP_CHOICES,
+    ],
+    (item) => item.label,
+  );
+  const chosen = await ctx.ui.select(UPDATE_VERSION_BUMP_TITLE, choiceLabels(choices));
   // 取消：不猜，整轮放弃。
   return pickChoice(choices, chosen) ?? null;
 }
@@ -396,17 +427,25 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
         // 需求框被取消：什么都没发生，也不留任何记录。
         if (requirement === null) return;
 
-        // 迭代轮的范围声明落在命令层：此刻还没花掉任何 token。答案由面板采集后
+        // 迭代轮的两问都落在命令层：此刻还没花掉任何 token。范围答案由面板采集后
         // 直接写进 gate.json（与 prototype_gate 同一条记录），于是「直接改」只点一次；
-        // 无面板的模式（json / print）不问也不写，交给 agent 那边的闸门回退文案。
+        // 版本号答案只进 kickoff。面板弹不出来（json / print）时两问都不问、也不写记录，
+        // 交给 agent 那边的闸门回退文案。
         let scope: UpdateScopeChoice | null = null;
+        let bump: VersionBumpChoice | null = null;
         if (ctx.hasUI) {
           scope = await chooseUpdateScope(ctx);
           if (!scope) return;
+          bump = await chooseVersionBump(ctx);
+          if (!bump) return;
           await writeGateState(ctx.cwd, stage.project, stage.kind, scope.answer);
         }
 
-        const target = `${base}${scope ? ` --scope ${scope.scope}` : ""}`;
+        const target = [
+          base,
+          scope ? ` --scope ${scope.scope}` : "",
+          bump ? ` --version-bump ${bump.bump}` : "",
+        ].join("");
         deliver(pi, ctx, target, requirement);
         return;
       }

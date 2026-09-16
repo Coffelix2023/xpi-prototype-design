@@ -22,7 +22,15 @@ import {
   renderArchiveEntry,
   renderChangelogEntry,
   rollbackCommand,
+  stagePath,
   toChoices,
+  UPDATE_VERSION_BUMP_CHOICES,
+  UPDATE_VERSION_BUMP_TITLE,
+  VERSION_ARCHIVE_BATCH,
+  VERSION_ARCHIVE_DIR,
+  VERSION_RETENTION_LIMIT,
+  versionArchivePath,
+  versionArchiveRestoreCommand,
 } from "./contracts.js";
 import { docTemplate } from "./templates.js";
 
@@ -290,6 +298,58 @@ describe("renderChangelogEntry", () => {
     expect(entry).toContain("- 原因：移动端优先");
     expect(entry).toContain("`index.html`");
   });
+
+  it("裁剪旧版本时记下归档目录与取回命令", () => {
+    const entry = renderChangelogEntry({
+      change: "第 11 个版本",
+      kind: "wireframe",
+      project: "subscription-page",
+      rollbackFrom: 10,
+      stamp: "2026-09-16 10:00",
+      version: 11,
+      archived: {
+        dir: ".pi/prototype-design/subscription-page/wireframe/archive",
+        stage: ".pi/prototype-design/subscription-page/wireframe",
+        versions: [
+          1,
+          2,
+          3,
+          4,
+          5,
+        ],
+      },
+    });
+    expect(entry).toContain("- 旧版本归档：v1 v2 v3 v4 v5 已移动到");
+    expect(entry).toContain(
+      "取回：mv .pi/prototype-design/subscription-page/wireframe/archive/v1 .pi/prototype-design/subscription-page/wireframe/",
+    );
+  });
+
+  it("没有裁剪时不写归档行", () => {
+    const entry = renderChangelogEntry({
+      change: "小改动",
+      kind: "hifi",
+      project: "subscription-page",
+      rollbackFrom: null,
+      stamp: "2026-09-16 10:00",
+      version: 1,
+    });
+    expect(entry).not.toContain("旧版本归档");
+  });
+});
+
+describe("版本保留", () => {
+  it("上限 10、批量 5，归档目录与取回命令从阶段路径派生", () => {
+    expect(VERSION_RETENTION_LIMIT).toBe(10);
+    expect(VERSION_ARCHIVE_BATCH).toBe(5);
+    expect(VERSION_ARCHIVE_DIR).toBe("archive");
+    expect(versionArchivePath(stagePath("p", "hifi"))).toBe(
+      ".pi/prototype-design/p/hifi/archive",
+    );
+    expect(versionArchiveRestoreCommand("p", "hifi", 3)).toBe(
+      "mv .pi/prototype-design/p/hifi/archive/v3 .pi/prototype-design/p/hifi/",
+    );
+  });
 });
 
 describe("archive", () => {
@@ -473,5 +533,28 @@ describe("parseGateState", () => {
         }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("UPDATE_VERSION_BUMP_CHOICES", () => {
+  it("两格：升级存 vN / 不升级只改 current", () => {
+    expect(UPDATE_VERSION_BUMP_CHOICES.map((choice) => choice.bump)).toEqual([
+      "yes",
+      "no",
+    ]);
+    expect(
+      choiceLabels(
+        toChoices(
+          [
+            ...UPDATE_VERSION_BUMP_CHOICES,
+          ],
+          (c) => c.label,
+        ),
+      ),
+    ).toEqual([
+      "升级版本号（改完存为 vN）",
+      "不升级（只改 current/，不留版本）",
+    ]);
+    expect(UPDATE_VERSION_BUMP_TITLE).toContain("版本号");
   });
 });

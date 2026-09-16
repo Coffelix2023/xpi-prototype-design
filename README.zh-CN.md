@@ -208,7 +208,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
         └── 2026-09-13-subscription-page-hifi/
 ```
 
-版本号按**页面阶段**递增，不按产品：同一页面下的 `wireframe` 与 `hifi` 各数各的 `vN`，旧的项目级 `<product>/<kind>/` 阶段也照旧自己数。归档把整个 `<kind>/` 目录移进 `archive/`，可凭日志里记录的命令恢复。
+版本号按**页面阶段**递增，不按产品：同一页面下的 `wireframe` 与 `hifi` 各数各的 `vN`，旧的项目级 `<product>/<kind>/` 阶段也照旧自己数。归档把整个 `<kind>/` 目录移进 `archive/`，可凭日志里记录的命令恢复。一个阶段最多保留 **10 个活跃版本**：第 11 次快照时最旧的 5 个被移进该阶段的 `archive/`（移走，不是删除），所以 `prototype_status` 只列留在链上的版本，而那条 `CHANGELOG.md` 记录里带着归档目录与把版本搬回来的 `mv` 命令。
 
 ### 迁移
 

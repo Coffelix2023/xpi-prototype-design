@@ -6,7 +6,13 @@ import type { TSchema } from "typebox";
 import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupArtifacts } from "./artifacts.js";
-import { MODES, UPDATE_SCOPE_CHOICES } from "./contracts.js";
+import {
+  MODES,
+  UPDATE_SCOPE_CHOICES,
+  UPDATE_SCOPE_TITLE,
+  UPDATE_VERSION_BUMP_CHOICES,
+  UPDATE_VERSION_BUMP_TITLE,
+} from "./contracts.js";
 import register from "./index.js";
 
 interface RegisteredCommand {
@@ -374,13 +380,25 @@ describe("hifi dual entry", () => {
 });
 
 describe("update branch", () => {
-  /** 面板会问两次：先挑项目，再声明本轮范围。按标题分流，避免两次调用互相顶掉。 */
-  function answerPanels(stage: string, scopeLabel: string | undefined): void {
+  /** 面板只会回列表里的值：把它传给 `answerPanels` 表示用户对那一问按了 Esc。 */
+  const CANCEL_PANEL = "（取消）";
+  /**
+   * 面板会问三次：挑项目、声明本轮范围、再定要不要升级版本号。
+   * 按标题分流，避免三次调用互相顶掉。`bumpLabel` 缺省是「升级」。
+   */
+  function answerPanels(
+    stage: string,
+    scopeLabel: string | undefined,
+    bumpLabel: string | undefined = UPDATE_VERSION_BUMP_CHOICES[0].label,
+  ): void {
     select.mockImplementation(async (title: unknown, options: unknown) => {
       const list = options as string[];
-      if (String(title).includes("要修改哪个项目")) {
+      const name = String(title);
+      if (name.includes("要修改哪个项目")) {
         return list.find((option) => option.startsWith(stage));
       }
+      // 面板只会回列表里的值：传 CANCEL_PANEL 即「这一问按了 Esc」。
+      if (name.includes("版本号")) return list.find((option) => option === bumpLabel);
       return scopeLabel;
     });
   }
@@ -423,7 +441,7 @@ describe("update branch", () => {
 
     // 范围声明也进 kickoff，agent 才知道这轮走哪条路。
     expect(sendUserMessage).toHaveBeenCalledWith(
-      "/skill:xpi-prototype-design update --project settings-flow --kind hifi --scope quick 调整侧栏",
+      "/skill:xpi-prototype-design update --project settings-flow --kind hifi --scope quick --version-bump yes 调整侧栏",
       {
         expandPromptTemplates: true,
       },
@@ -439,18 +457,70 @@ describe("update branch", () => {
       .get("xpi-prototype-design")
       ?.handler("update 改一行文案", commandContext());
 
-    // 挑项目 + 声明范围 = 两次点击，之后 current/ 就放行，不再有第三张卡。
-    expect(select).toHaveBeenCalledTimes(2);
+    // 挑项目 + 声明范围 + 版本号 = 三次点击，之后 current/ 就放行，不再有第四张卡。
+    expect(select).toHaveBeenCalledTimes(3);
     const record = await gateRecord("subscription-page", "wireframe");
     expect(record?.answer).toBe("execute");
     // 阶段还没有快照，本轮基线是 0。
     expect(record?.baseline).toBe(0);
     expect(sendUserMessage).toHaveBeenCalledWith(
-      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope quick 改一行文案",
+      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope quick --version-bump yes 改一行文案",
       {
         expandPromptTemplates: true,
       },
     );
+  });
+
+  it("版本号第二问：选「不升级」时 kickoff 带 --version-bump no", async () => {
+    await produceStage("subscription-page", "wireframe");
+    answerPanels(
+      "subscription-page / wireframe",
+      UPDATE_SCOPE_CHOICES[0].label,
+      UPDATE_VERSION_BUMP_CHOICES[1].label,
+    );
+    const { commands, sendUserMessage } = harness();
+
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("update 只改一行文案", commandContext());
+
+    expect(sendUserMessage).toHaveBeenCalledWith(
+      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope quick --version-bump no 只改一行文案",
+      {
+        expandPromptTemplates: true,
+      },
+    );
+  });
+
+  it("面板顺序：先声明范围，再定版本号", async () => {
+    await produceStage("subscription-page", "wireframe");
+    answerPanels("subscription-page / wireframe", UPDATE_SCOPE_CHOICES[0].label);
+    const { commands } = harness();
+
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("update 改一行文案", commandContext());
+
+    // 第 0 次是挑项目。
+    expect(select.mock.calls[1]?.[0]).toBe(UPDATE_SCOPE_TITLE);
+    expect(select.mock.calls[2]?.[0]).toBe(UPDATE_VERSION_BUMP_TITLE);
+  });
+
+  it("取消版本号第二问就整轮放弃：不发消息，也不留记录", async () => {
+    await produceStage("subscription-page", "wireframe");
+    answerPanels(
+      "subscription-page / wireframe",
+      UPDATE_SCOPE_CHOICES[0].label,
+      CANCEL_PANEL,
+    );
+    const { commands, sendUserMessage } = harness();
+
+    await commands
+      .get("xpi-prototype-design")
+      ?.handler("update 改一行文案", commandContext());
+
+    expect(sendUserMessage).not.toHaveBeenCalled();
+    expect(await gateRecord("subscription-page", "wireframe")).toBeNull();
   });
 
   it("选「先给改动清单」时只留 save 记录，current/ 继续挡着", async () => {
@@ -464,7 +534,7 @@ describe("update branch", () => {
 
     expect((await gateRecord("subscription-page", "wireframe"))?.answer).toBe("save");
     expect(sendUserMessage).toHaveBeenCalledWith(
-      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope plan 重写笔记面板",
+      "/skill:xpi-prototype-design update --project subscription-page --kind wireframe --scope plan --version-bump yes 重写笔记面板",
       {
         expandPromptTemplates: true,
       },
