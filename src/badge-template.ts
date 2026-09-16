@@ -137,6 +137,31 @@ export function badgeCss(annotateDefault: boolean): string {
 .badge-toggle button.off {
   background: #4b5563;
 }
+/* 悬停/聚焦时显示完整短码的浮层。节点挂在 body 末尾，不在任何 overflow 容器内，
+   因此不会被祖先裁切；fixed + pointer-events:none 保证它不吃原型自己的点击。
+   z-index 取 1800：低于拖动开关(2000)，高于常显徽标 hover 时的 1500。 */
+.badge-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1800;
+  display: none;
+  max-width: 60vw;
+  padding: 4px 8px;
+  font-family: ui-monospace, "SF Mono", Monaco, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #ffffff;
+  white-space: nowrap;
+  pointer-events: none;
+  background: #111827;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
+}
+.badge-tip.on {
+  display: block;
+}
 `;
 }
 
@@ -195,6 +220,48 @@ export const BADGE_JS = `(function () {
       // 隐私模式、file:// 或坏 JSON：读不出来就用 CSS 的默认右上角，不抛错。
     }
 
+    // 不在 pointerdown 时 setPointerCapture：指针捕获会把随后的 mouseup/click
+    // 重定向到本容器，按钮上的 click 监听器再也收不到事件（表现为开关点不动）。
+    // 改成把 move/up 挂到 window：拖出容器一样跟手，且不改事件目标。
+    function onDragMove(event) {
+      if (!drag) return;
+      var dx = event.clientX - drag.x;
+      var dy = event.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+      suppressClick = true;
+      clampAndPlace(drag.left + dx, drag.top + dy);
+    }
+
+    function stopDrag() {
+      window.removeEventListener("pointermove", onDragMove);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", cancelDrag);
+    }
+
+    function endDrag() {
+      if (!drag) {
+        stopDrag();
+        return;
+      }
+      drag = null;
+      if (suppressClick) {
+        try {
+          window.localStorage.setItem(
+            STORE_KEY,
+            JSON.stringify({ left: box.offsetLeft, top: box.offsetTop })
+          );
+        } catch (error) {
+          // 存不下只影响「下次打开还在原地」，不影响本轮拖动。
+        }
+      }
+      stopDrag();
+    }
+
+    function cancelDrag() {
+      drag = null;
+      stopDrag();
+    }
+
     box.addEventListener("pointerdown", function (event) {
       if (event.button !== 0) return;
       suppressClick = false;
@@ -202,36 +269,11 @@ export const BADGE_JS = `(function () {
         left: box.offsetLeft,
         top: box.offsetTop,
         x: event.clientX,
-        y: event.clientY,
+        y: event.clientY
       };
-      if (box.setPointerCapture) box.setPointerCapture(event.pointerId);
-    });
-
-    box.addEventListener("pointermove", function (event) {
-      if (!drag) return;
-      var dx = event.clientX - drag.x;
-      var dy = event.clientY - drag.y;
-      if (Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
-      suppressClick = true;
-      clampAndPlace(drag.left + dx, drag.top + dy);
-    });
-
-    box.addEventListener("pointerup", function () {
-      if (!drag) return;
-      drag = null;
-      if (!suppressClick) return;
-      try {
-        window.localStorage.setItem(
-          STORE_KEY,
-          JSON.stringify({ left: box.offsetLeft, top: box.offsetTop })
-        );
-      } catch (error) {
-        // 存不下只影响「下次打开还在原地」，不影响本轮拖动。
-      }
-    });
-
-    box.addEventListener("pointercancel", function () {
-      drag = null;
+      window.addEventListener("pointermove", onDragMove);
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", cancelDrag);
     });
   }
 
@@ -251,16 +293,29 @@ export const BADGE_JS = `(function () {
     if (top && right) return "tr";
     if (bottom && left) return "bl";
     if (bottom && right) return "br";
-    // 元素本身撑满视口，四角都放不下：退回默认左上。
-    return null;
+    // 元素贴边或撑满视口，四角都不「完全放得下」：选各边超出量之和最小的那个角。
+    // 旧实现这里 return null 退回默认左上，而默认左上同样可能在画外 —— 实测贴顶的
+    // resize 手柄整块徽标被视口切掉。宁可露出一部分，也不要露出零。
+    var corners = ["tl", "tr", "bl", "br"];
+    var cost = {
+      tl: Math.max(0, GAP - rect.top) + Math.max(0, GAP - rect.left),
+      tr: Math.max(0, GAP - rect.top) + Math.max(0, rect.right - window.innerWidth + GAP),
+      bl: Math.max(0, rect.bottom - window.innerHeight + GAP) + Math.max(0, GAP - rect.left),
+      br:
+        Math.max(0, rect.bottom - window.innerHeight + GAP) +
+        Math.max(0, rect.right - window.innerWidth + GAP)
+    };
+    var best = corners[0];
+    for (var i = 1; i < corners.length; i++) {
+      if (cost[corners[i]] < cost[best]) best = corners[i];
+    }
+    return best;
   }
   function placeBadges() {
     for (var i = 0; i < badges.length; i++) {
       var el = badges[i];
       var pos = choosePos(el.getBoundingClientRect());
-      if (el.getAttribute("data-badge-pos") === pos) continue;
-      if (pos) el.setAttribute("data-badge-pos", pos);
-      else el.removeAttribute("data-badge-pos");
+      if (el.getAttribute("data-badge-pos") !== pos) el.setAttribute("data-badge-pos", pos);
     }
   }
   // 判定读的是视口坐标，滚动与缩放都会改变结果；rAF 节流保证一帧最多算一次。
@@ -283,6 +338,54 @@ export const BADGE_JS = `(function () {
   });
   placeBadges();
 
+
+  // ==================== 悬停浮层 ====================
+  // 常显徽标画在元素边界外，会被祖先的 overflow 裁掉，密集时还会互相压。
+  // 浮层挂在 body 末尾、不在任何 overflow 容器内，一次只显示一个，
+  // 于是短码无论被裁还是被压，悬停/聚焦时都能读全。
+  var tip = document.querySelector(".badge-tip");
+  var TIP_GAP = 6;
+  function tipTarget(node) {
+    return node && node.closest ? node.closest("[data-semantic-badge]") : null;
+  }
+  function showTip(el) {
+    if (!tip) return;
+    var parts = [
+      el.getAttribute("data-semantic-badge"),
+      el.getAttribute("data-status"),
+      el.getAttribute("data-type")
+    ];
+    tip.textContent = parts.filter(Boolean).join(" · ");
+    tip.classList.add("on");
+    var rect = el.getBoundingClientRect();
+    var box = tip.getBoundingClientRect();
+    var left = Math.min(Math.max(TIP_GAP, rect.left), window.innerWidth - box.width - TIP_GAP);
+    var below = rect.bottom + TIP_GAP;
+    var top = below + box.height <= window.innerHeight ? below : rect.top - box.height - TIP_GAP;
+    tip.style.left = Math.max(TIP_GAP, left) + "px";
+    tip.style.top = Math.max(TIP_GAP, top) + "px";
+  }
+  function hideTip() {
+    if (tip) tip.classList.remove("on");
+  }
+  if (tip) {
+    document.addEventListener("mouseover", function (event) {
+      var el = tipTarget(event.target);
+      if (el) showTip(el);
+    });
+    document.addEventListener("mouseout", function (event) {
+      // 元素内部的子节点之间移动也会先 mouseout，别因此闪一下。
+      var from = tipTarget(event.target);
+      if (from && from !== tipTarget(event.relatedTarget)) hideTip();
+    });
+    document.addEventListener("focusin", function (event) {
+      var el = tipTarget(event.target);
+      if (el) showTip(el);
+    });
+    document.addEventListener("focusout", hideTip);
+    // fixed 定位在滚动后不再贴合元素，直接收起比错位更不误导。
+    window.addEventListener("scroll", hideTip, true);
+  }
   apply();
 })();
 `;
@@ -302,6 +405,14 @@ function injectBefore(html: string, tag: string, block: string): string {
   if (at < 0) return `${html}\n${block}`;
   return `${html.slice(0, at)}${block}${html.slice(at)}`;
 }
+
+/**
+ * 悬停/聚焦时显示完整短码的浮层节点。
+ *
+ * 刻意**不带** `data-badge-system`：那是 `injectBadgeSystem` 的幂等判据，浮层
+ * 带上它会让下一个文件被误判为「已装过徽标系统」而静默跳过注入。
+ */
+export const BADGE_TIP_HTML = '<div class="badge-tip" aria-hidden="true"></div>';
 
 function toggleHtml(annotateDefault: boolean): string {
   const state = annotateDefault ? "ON" : "OFF";
@@ -327,7 +438,7 @@ export function injectBadgeSystem(html: string, annotateDefault: boolean): strin
   return injectBefore(
     withCss,
     "body",
-    `${toggleHtml(annotateDefault)}\n<script ${BADGE_MARK}>\n${BADGE_JS}</script>\n`,
+    `${toggleHtml(annotateDefault)}\n${BADGE_TIP_HTML}\n<script ${BADGE_MARK}>\n${BADGE_JS}</script>\n`,
   );
 }
 

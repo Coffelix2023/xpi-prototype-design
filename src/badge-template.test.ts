@@ -106,7 +106,14 @@ describe("BADGE_JS", () => {
     expect(BADGE_JS).toContain('addEventListener("pointerdown"');
     expect(BADGE_JS).toContain('addEventListener("pointermove"');
     expect(BADGE_JS).toContain('addEventListener("pointerup"');
-    expect(BADGE_JS).toContain("setPointerCapture");
+    // 回归：pointerdown 里 setPointerCapture 会把随后的 mouseup/click 重定向到
+    // 容器，按钮再也收不到 click（实测点击失效）。整个脚本都不该出现它。
+    // 注释里解释了原因，断言只针对调用本身。
+    expect(BADGE_JS).not.toContain("box.setPointerCapture");
+    // 拖拽监听挂 window：拖出容器一样跟手，且不改事件目标。
+    expect(BADGE_JS).toContain('window.addEventListener("pointermove", onDragMove)');
+    expect(BADGE_JS).toContain('window.addEventListener("pointerup", endDrag)');
+    expect(BADGE_JS).toContain('window.removeEventListener("pointerup", endDrag)');
     // 收边：位置必须在视口内，换小窗口后旧坐标也不会跑到画布外。
     expect(BADGE_JS).toContain("clampAndPlace");
     expect(BADGE_JS).toContain("Math.max(0, window.innerWidth - box.offsetWidth)");
@@ -121,7 +128,9 @@ describe("BADGE_JS", () => {
     expect(BADGE_JS).toContain('querySelectorAll("[data-semantic-badge]")');
     expect(BADGE_JS).toContain("getBoundingClientRect");
     expect(BADGE_JS).toContain('setAttribute("data-badge-pos"');
-    expect(BADGE_JS).toContain('removeAttribute("data-badge-pos")');
+    // 四角都放不下时不能回默认左上，得退到「超出量最小」的角。
+    expect(BADGE_JS).toContain('var corners = ["tl", "tr", "bl", "br"]');
+    expect(BADGE_JS).toContain("cost[corners[i]] < cost[best]");
     expect(BADGE_JS).toContain('addEventListener("resize"');
     // 内层滚动容器的事件不冒泡到 window，必须在捕获阶段监听。
     expect(BADGE_JS).toContain('addEventListener("scroll", schedulePlaces, true)');
@@ -145,6 +154,11 @@ describe("injectBadgeSystem", () => {
     expect(button).toBeLessThan(body);
     expect(script).toBeGreaterThan(button);
     expect(script).toBeLessThan(body);
+    // 浮层也在 body 内、在任何 overflow 容器之外，且不得带注入标记。
+    const tip = html.indexOf('<div class="badge-tip"');
+    expect(tip).toBeGreaterThan(head);
+    expect(tip).toBeLessThan(body);
+    expect(html.match(/<div class="badge-tip"[^>]*data-badge-system/g)).toBeNull();
   });
 
   it("原 HTML 结构保持完整", () => {
@@ -169,6 +183,7 @@ describe("injectBadgeSystem", () => {
     const twice = injectBadgeSystem(once, true);
     expect(twice).toBe(once);
     expect(twice.match(/id="badge-toggle-btn"/g)).toHaveLength(1);
+    expect(twice.match(/class="badge-tip"/g)).toHaveLength(1);
   });
 
   // 回归：元素属性和注入标记曾同名，于是第一个徽标就让注入自认已完成。
@@ -281,9 +296,11 @@ describe("addBadgeAttributes", () => {
 /** 只 stub 朝向段会碰到的东西：假按钮的 closest() 返回 null，拖动段整段短路。 */
 type RectLike = {
   bottom: number;
+  height: number;
   left: number;
   right: number;
   top: number;
+  width: number;
 };
 type BadgeNode = {
   getAttribute: (name: string) => string | null;
@@ -296,9 +313,11 @@ type BadgeNode = {
 function rect(top: number, left: number, width: number, height: number): RectLike {
   return {
     bottom: top + height,
+    height,
     left,
     right: left + width,
     top,
+    width,
   };
 }
 
@@ -336,6 +355,8 @@ function runBadgeJs(
       },
       closest: () => null,
     }),
+    // 浮层在这里取不到：整段悬停逻辑短路，本组用例只测朝向。
+    querySelector: () => null,
     querySelectorAll: () => nodes,
   };
   new Function(
@@ -390,7 +411,7 @@ describe("BADGE_JS 朝向判定", () => {
     expect(assigned.get(corner)).toBe("br");
   });
 
-  it("撑满视口的元素四角都放不下，退回无属性", () => {
+  it("撑满视口的元素四角都放不下，退到超出量最小的角（并列时取左上）", () => {
     const full = rect(0, 0, 800, 600);
     expect(
       runBadgeJs(
@@ -399,6 +420,152 @@ describe("BADGE_JS 朝向判定", () => {
         ],
         viewport,
       ).get(full),
-    ).toBeUndefined();
+    ).toBe("tl");
+  });
+});
+
+describe("BADGE_JS 悬停浮层", () => {
+  const ATTRS: Record<string, string> = {
+    "data-semantic-badge": "P1-3-B2",
+    "data-status": "proposed",
+    "data-type": "component",
+  };
+
+  /** 事件冒泡到 document 时 target 就是元素本身，closest() 回它自己。 */
+  function targetAt(box: RectLike) {
+    const node: {
+      closest: () => unknown;
+      getAttribute: (name: string) => string | null;
+      getBoundingClientRect: () => RectLike;
+    } = {
+      closest: () => node,
+      getAttribute: (name: string) => ATTRS[name] ?? null,
+      getBoundingClientRect: () => box,
+    };
+    return node;
+  }
+
+  /** 只 stub 浮层段会碰到的东西：假按钮的 closest() 返回 null，拖动段整段短路。 */
+  function run(
+    rects: RectLike[],
+    viewport: {
+      height: number;
+      width: number;
+    },
+  ) {
+    const tip = {
+      textContent: "",
+      classList: {
+        add: () => {},
+        remove: () => {},
+      },
+      getBoundingClientRect: () => rect(0, 0, 120, 20),
+      style: {
+        left: "",
+        top: "",
+      },
+    };
+    const nodes = rects.map((box) => ({
+      getAttribute: (name: string) => ATTRS[name] ?? null,
+      getBoundingClientRect: () => box,
+      removeAttribute: () => {},
+      setAttribute: () => {},
+    }));
+    const handlers: Record<string, (event: unknown) => void> = {};
+    const doc = {
+      addEventListener: (name: string, fn: (event: unknown) => void) => {
+        handlers[name] = fn;
+      },
+      documentElement: {
+        style: {
+          setProperty: () => {},
+        },
+      },
+      getElementById: () => ({
+        textContent: "",
+        addEventListener: () => {},
+        classList: {
+          toggle: () => {},
+        },
+        closest: () => null,
+      }),
+      querySelector: () => tip,
+      querySelectorAll: () => nodes,
+    };
+    new Function(
+      "window",
+      "document",
+      "getComputedStyle",
+      "requestAnimationFrame",
+      BADGE_JS,
+    )(
+      {
+        innerHeight: viewport.height,
+        innerWidth: viewport.width,
+        addEventListener: () => {},
+      },
+      doc,
+      () => ({
+        getPropertyValue: () => "block",
+      }),
+      (fn: () => void) => fn(),
+    );
+    return {
+      fire: (name: string, event: unknown) => handlers[name]?.(event),
+      tip,
+    };
+  }
+
+  it("悬停元素时浮层显示完整短码 · 状态 · 类型", () => {
+    const target = rect(300, 400, 100, 40);
+    const { fire, tip } = run(
+      [
+        target,
+      ],
+      {
+        height: 600,
+        width: 800,
+      },
+    );
+    fire("mouseover", {
+      target: targetAt(target),
+    });
+    expect(tip.textContent).toBe("P1-3-B2 · proposed · component");
+    expect(tip.style.left).toBe("400px");
+    expect(tip.style.top).toBe("346px");
+  });
+
+  it("元素贴右边界时浮层收边，不越出视口", () => {
+    const target = rect(300, 700, 100, 40);
+    const { fire, tip } = run(
+      [
+        target,
+      ],
+      {
+        height: 600,
+        width: 800,
+      },
+    );
+    fire("mouseover", {
+      target: targetAt(target),
+    });
+    expect(tip.style.left).toBe("674px");
+  });
+
+  it("元素下方放不下时浮层翻到上方", () => {
+    const target = rect(570, 300, 100, 40);
+    const { fire, tip } = run(
+      [
+        target,
+      ],
+      {
+        height: 600,
+        width: 800,
+      },
+    );
+    fire("mouseover", {
+      target: targetAt(target),
+    });
+    expect(tip.style.top).toBe("544px");
   });
 });
