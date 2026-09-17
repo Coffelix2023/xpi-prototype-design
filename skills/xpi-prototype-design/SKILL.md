@@ -358,7 +358,7 @@ prototype_preview { project, kind, file: "screens/01-home.html" }
 
 字典在**产品级**：`.pi/prototype-design/<project>/semantic-ui-map.yaml`，跨页面、跨阶段共享。字段真相在 `docs/semantic-ui-map-schema.md`——改字典前先看它，别凭记忆写字段。
 
-**谁维护 `elements`**：只有你。`prototype_setup` 建空骨架，`prototype_snapshot` 只递增 `meta.version`——两者都**不登记**页面与元素。空骨架意味着标注一个徽标也落不下，所以需求深挖完成后、开始产出 HTML 之前，你必须把本轮的 `pages` 与 `elements` 按 schema 写进字典；每个元素带 `id`、`short`、`label`、`type`、`status`、`stage_created`、`fidelities`。同一元素从 wireframe 推进到 hifi 时 `id` / `short` 不变，只有 `fidelities` 各指一处。
+**谁维护 `elements`**：只有你。`prototype_setup` 建空骨架，`prototype_snapshot` 只递增 `meta.version`——两者都**不登记**页面与元素。空骨架意味着标注一个徽标也落不下，所以需求深挖完成后、开始产出 HTML 之前，你必须把本轮的 `pages` 与 `elements` 按 schema 写进字典；每个元素带 `id`、`short`、`label`、`type`、`status`、`stage_created`、`fidelities`（推进生产后再加 `impl`，见下面的生产映射纪律）。同一元素从 wireframe 推进到 hifi 时 `id` / `short` 不变，只有 `fidelities` 各指一处。
 
 **三个工具的时机与形态**：
 
@@ -390,6 +390,26 @@ semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }
 - `ambiguous`：把候选列表报给用户让他选，**不得自己挑一个**；也可以带 `page` 上下文再解析一次收窄。
 - `unregistered`：字典里没登记这个元素——先登记，或问用户要短码。
 
+
+**定位两步法**（要改的已经在生产代码里时）：
+
+```text
+semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }
+  → matched: chat.sidebar.collapse-btn（impl: components/chat/sidebar.tsx）
+anchor_grep { pattern: "chat.sidebar.collapse-btn", literal: true }
+  → components/chat/sidebar.tsx:42
+```
+
+第一步永远先按**全路径语义 ID** 在源码里 grep——生产源码里每个可修改元素都带 `data-semantic-id`，命中的行自带锚点，可以直接 `replace`。grep 不到时才退一步读 `impl.path` 指向的文件。**别跳过第一步**：一个文件常承载多个语义元素（`app-rail.tsx` 一类装 7 个），只按文件定位分不出谁是谁。
+
+**生产映射纪律**（元素的 `impl` 段，字段真相见 `docs/semantic-ui-map-schema.md` §7）：
+
+- 生产组件用**全路径**写 `data-semantic-id`，不用短码——短码只在页面内唯一，源码是全局的。
+- `impl` 缺失 = **还没推进生产**，不是缺字段；`semantic_ui_map_parse` 会明说「未登记生产落点」。
+- 只有 `status: locked` 才推进：`proposed` 的元素结构还会变，推进等于给自己挖返工坑。
+- 推进**不得改 `id` / `short`**：它们是跨阶段、跨实现的稳定身份，改了用户的口语引用全部失效。
+- `impl.path` 只给文件，不带 `#` 选择器；行级定位靠源码里的 `data-semantic-id`。
+- 登记 `impl` 后跑一次 `semantic_ui_map_validate`：`impl.path` 写错会报 `invalid-impl-path`，不静默留在字典里。
 **props 契约纪律**（改元素属性时）：
 
 - 该属性已在 `props` 里声明 → 只改它的 `current` 值，**不重写 HTML 结构**。
@@ -452,6 +472,7 @@ semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }
 - [ ] `meta.type` 与原型形态一致：单文件 SPA 写 `spa`，多文件写 `multi-page`
 - [ ] 可修改元素已分配语义 ID（HTML `id` 属性 = 字典短码/全路径）
 - [ ] `semantic_ui_map_validate` 返回 `valid`（`missing` 不算通过）
+- [ ] 若本轮把元素推进了生产：`impl` 已登记（`path` 相对项目根、不含 `#`），`semantic_ui_map_validate` 仍返回 `valid`，且 `id` / `short` 一个都没改
 - [ ] `semantic_ui_map_annotate` 已执行，徽标系统注入完成（字典缺失时跳过）
 - [ ] 交付时把本轮可修改元素的短码报给了用户
 - [ ] `prototype_snapshot` 已执行，`CHANGELOG.md` 顶部是本轮（本轮 `--version-bump no` 时跳过，并在交付里说明「本轮未存版本」）

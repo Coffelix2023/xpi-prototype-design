@@ -44,10 +44,11 @@
 - **跨保真度脊柱**：wireframe 到 hifi 阶段 ID 不变
 - **状态机**：proposed → confirmed → locked
 - **解析器与校验器**：解析短码、别名、全路径；检测冲突和循环引用
+- **生产映射**：元素推进生产后，`impl` 落点随解析结果一起返回，Agent 可直接走到生产源码
 - **零依赖**：纯 Node.js + TypeScript，无外部运行时
 - **优雅降级**：无字典时原型仍可正常预览
 
-字典记录元素元数据（类型、状态、props 契约、父子关系、fidelities 锚点），支持 SPA（客户端路由如 `#/chat`）和多页面模式。校验器检查六类问题：必填字段、ID/短码冲突、alias 重复、循环引用、状态机合法性、fidelities 路径格式。解析器接受短码、全路径或中文别名，返回唯一匹配、候选列表或未注册状态——绝不静默猜测。
+字典记录元素元数据（类型、状态、props 契约、父子关系、fidelities 锚点，以及元素推进生产后的 `impl` 落点），支持 SPA（客户端路由如 `#/chat`）和多页面模式。校验器检查八类问题：必填字段、ID/短码冲突、alias 重复、循环引用、状态机合法性、fidelities 路径格式、闭集外的键、`impl` 路径格式。解析器接受短码、全路径或中文别名，返回唯一匹配（已推进生产的元素一并带出 `impl`）、候选列表或未注册状态——绝不静默猜测。
 
 **怎么用（五步）：**
 
@@ -55,7 +56,7 @@
 2. 产出前调 `semantic_ui_map_validate { project }`，有问题码先修完。`valid` 才算干净；`missing` 表示字典还没建，**不是**通过。
 3. HTML 里每个可修改元素的 `id` 写成它的短码或全路径。
 4. 产出后调一次 `semantic_ui_map_annotate { project, pageId, kind }`：给 id 命中的元素补 `data-semantic-badge` / `data-status`，并注入徽标系统（CSS + 右上角开关按钮）。幂等，可重复调。
-5. 用户用口语指元素时调 `semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }`：返回元素、或封顶 10 条候选加总数（此时必须问用户，不得自己挑）、或「未登记」。
+5. 用户用口语指元素时调 `semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }`：返回元素（已登记 `impl` 时一并带出生产落点）、或封顶 10 条候选加总数（此时必须问用户，不得自己挑）、或「未登记」。
 
 `prototype_snapshot` 会在存快照之后自动递增 `meta.version`；`meta.annotate_default: false` 让徽标初始隐藏（按钮显示 `OFF`）。没有字典时标注工具一个字节都不写，预览照常——字典是增强，不是阻塞项。完整可运行示例见 [`examples/semantic-ui-map/`](./examples/semantic-ui-map/)。
 
@@ -180,7 +181,7 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | `prototype_migration_execute` | 同一批来源，加用户确认过的 `decisions` | 复制进 `<product>/pages/<page-id>/<kind>/current/`，把页面登记进产品地图，写迁移报告 | 计划还有待决项、或 `confirm` 不为 true 时**一个字节都不写**；绝不覆盖已存在的目标 |
 | `semantic_ui_map_annotate` | 所选页面阶段的 `current/**/*.html` 与产品级语义字典 | 给 `id` 与短码/全路径命中的元素补 `data-semantic-badge` / `data-status`，注入徽标系统（CSS + 开关按钮） | 幂等，重复调用不叠加；字典不存在时一个字节都不写，只报告跳过；`multi-page` 下不标注锚点指向别的文件的元素 |
 | `semantic_ui_map_validate` | 产品级语义字典（`<project>/semantic-ui-map.yaml`） | 不改任何东西（只读） | 绝不写盘；字典缺失时返回 `status: "missing"` 并明说「未做校验」，绝不把空问题码列表伪装成通过 |
-| `semantic_ui_map_parse` | 同一份字典 | 不改任何东西（只读） | 绝不写盘，也绝不替用户挑候选：别名多候选时返回最多 10 条加总数，要求给短码或 `page` 上下文 |
+| `semantic_ui_map_parse` | 同一份字典 | 不改任何东西（只读） | 绝不写盘，也绝不替用户挑候选：别名多候选时返回最多 10 条加总数，要求给短码或 `page` 上下文；命中已登记 `impl` 的元素时把它一并返回，让 Agent 能接着走到生产源码 |
 写盘门禁在 `gate.ts` 里注册一个 `tool_call` 钩子：`write` / `edit` 目标是某阶段的 `current/**`（项目级或页面级），且 `gate.json` 里没有**本轮**的 `execute`（答案不是 `execute`，或 `baseline` 与当前版本数不一致）时直接 block，并把原因回灌给模型。`plan.md` / `tasks.md` 这些台账不在门禁范围——它们的真实内容正好要在用户确认之后才写（`prototype_setup` 只放空骨架）。
 `project` 是信任边界：必须匹配 `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`，两层校验（工具 schema 与 `artifacts.ts`）。所有路径都由 `ctx.cwd` 推导，任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
 
@@ -269,7 +270,7 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
     ├── migration.ts           # 迁移评审计划、执行、校验、报告
     ├── preview.ts             # 系统默认浏览器启动器
     ├── requirement-editor.ts  # 需求对话框:提交键优先于换行判定
-    ├── semantic-ui-map.ts     # 语义字典:双码、加载、解析、六类校验、版本递增
+    ├── semantic-ui-map.ts     # 语义字典:双码、加载、解析、八类校验、版本递增
     ├── semantic-ui-map-yaml.ts # 最小 YAML 解析器(本 schema 子集)
     ├── badge-template.ts      # 徽标 CSS/JS 模板与 HTML 注入
     ├── semantic-annotate.ts   # semantic_ui_map_annotate:把字典落到 current/ 的 HTML

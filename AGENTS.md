@@ -102,9 +102,10 @@ pnpm coverage         # vitest run --coverage（带 semantic-ui-map 四个模块
 | HTML 归属 | HTML 由 agent 写，扩展只做后处理 | 扩展不生成 HTML；`semantic_ui_map_annotate` 按 `id` 匹配，写错的靠返回值里的计数暴露，不静默 |
 | 范围过滤 | `multi-page` 按 `fidelities[stage]` 只标注指向本文件的元素；`spa` 按 `id` 命中 | 短码只在页面内唯一，跨页面全量匹配会串台 |
 | 路由归属 | SPA 的显示/隐藏由原型自己实现（非活动页面容器 `display:none`），契约写在 SKILL.md §8.5 | 徽标是元素的 `::before`，容器隐藏则徽标一并隐藏；扩展猜标记契约会静默失效 |
-| YAML 解析 | 手写最小子集（`semantic-ui-map-yaml.ts`），不引依赖 | 零运行时依赖；schema 固定，不需要完整 YAML 1.2。支持与不支持的范围见 schema 文档 §11 |
+| YAML 解析 | 手写最小子集（`semantic-ui-map-yaml.ts`），不引依赖 | 零运行时依赖；schema 固定，不需要完整 YAML 1.2。支持与不支持的范围见 schema 文档 §12 |
 | 只读与写盘分文件 | `semantic-tools.ts` 只放只读工具（validate / parse），`semantic-annotate.ts` 放写盘工具（annotate） | 「这个模块碰不碰盘」是评审时最需要一眼看出的属性；只读工具不写盘，因此不碰 `gate.ts`，闸门射程不变 |
-| 校验 | 六类问题码；`version`/`updated` 由快照递增时只改这两行，不重新序列化字典 | 人工写的注释与字段顺序必须活下来 |
+| 校验 | 八类问题码；`version`/`updated` 由快照递增时只改这两行，不重新序列化字典 | 人工写的注释与字段顺序必须活下来 |
+| 生产映射 | 独立成元素的 `impl` 段（`path` / `export` / `promoted_at`），不扩 `fidelities` 闭集；闭集外的键报 `unknown-key`，不静默丢弃 | `fidelities` 的校验模式要求值以 `.html` 结尾（`src/x.tsx` 过不了），且它的键语义是保真度阶段，生产实现是另一个物种；静默丢弃会让「已登记生产映射」与「没有生产映射」在工具输出里长得完全一样，绿灯变成假绿灯。字段真相见 `docs/semantic-ui-map-schema.md` §7 |
 
 **集成点**：
 
@@ -112,7 +113,7 @@ pnpm coverage         # vitest run --coverage（带 semantic-ui-map 四个模块
 - `prototype_snapshot` → `incrementSemanticMapVersion`（失败静默降级，不让一次成功的快照看起来像失败）
 - `semantic_ui_map_annotate` → `annotateStage`（字典缺失时一个字节都不写）
 - `semantic_ui_map_validate` → `validateProjectMap`（只读；缺字典报 `missing`，不把「没校验」渲染成「通过」）
-- `semantic_ui_map_parse` → `parseProjectInput`（只读；多候选封顶 10 条 + 总数，不替用户挑）
+- `semantic_ui_map_parse` → `parseProjectInput`（只读；多候选封顶 10 条 + 总数，不替用户挑；命中已登记 `impl` 的元素时带出生产落点）
 - 不改 `prototype_preview`、`prototype_gate`：预览逻辑自包含，闸门只管写盘许可
 
 **文档与示例**：字段真相在 [`docs/semantic-ui-map-schema.md`](./docs/semantic-ui-map-schema.md)，与 `src/semantic-ui-map.ts` 类型一一对应；可运行示例在 [`examples/semantic-ui-map/`](./examples/semantic-ui-map/)（其字典与 HTML 由 `src/semantic-flow.test.ts` 守着，腐烂即测试失败）。

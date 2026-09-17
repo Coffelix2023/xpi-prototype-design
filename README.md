@@ -43,10 +43,11 @@ Each product maintains one dictionary shared across pages and fidelities (wirefr
 - **Cross-fidelity spine**: IDs stay stable from wireframe to hifi
 - **State machine**: proposed → confirmed → locked
 - **Parser & validator**: Resolves short codes, aliases, and full paths; detects conflicts and circular references
+- **Production mapping**: Once an element is promoted, its `impl` spot (source path) travels with the parse result, so an agent walks straight to the production source
 - **Zero dependencies**: Pure Node.js + TypeScript, no external runtime
 - **Graceful degradation**: Prototypes preview normally without a dictionary
 
-The dictionary records element metadata (type, status, props contract, parent/children relationships, fidelities anchors) and supports both SPA (client-side routes like `#/chat`) and multi-page modes. The validator reports six classes of problem: missing required fields, duplicate IDs/short codes, alias collisions, circular references, illegal state transitions, and malformed fidelity paths. The parser accepts short codes, full paths, or Chinese aliases, returning a unique match, a candidate list, or `unregistered`—never a silent guess.
+The dictionary records element metadata (type, status, props contract, parent/children relationships, fidelities anchors, and the `impl` landing spot once an element is promoted to production) and supports both SPA (client-side routes like `#/chat`) and multi-page modes. The validator reports eight classes of problem: missing required fields, duplicate IDs/short codes, alias collisions, circular references, illegal state transitions, malformed fidelity paths, keys outside the closed sets, and malformed `impl` paths. The parser accepts short codes, full paths, or Chinese aliases, returning a unique match (with `impl` when the element has been promoted), a candidate list, or `unregistered`—never a silent guess.
 
 **Using it takes five steps:**
 
@@ -54,7 +55,7 @@ The dictionary records element metadata (type, status, props contract, parent/ch
 2. Before producing, run `semantic_ui_map_validate { project }` and fix every problem code first. `valid` means clean; `missing` means no dictionary exists yet, **not** a pass.
 3. Every modifiable element in the HTML gets an `id` equal to its short code or full path.
 4. After producing the HTML, call `semantic_ui_map_annotate { project, pageId, kind }`: it adds `data-semantic-badge` / `data-status` to the elements whose `id` matched, and injects the badge system (CSS + a toggle button). Idempotent, safe to re-run.
-5. When the user points at an element in plain language, call `semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }`. It returns the element, a candidate list capped at 10 plus the total (then ask the user — never pick one yourself), or `unregistered`.
+5. When the user points at an element in plain language, call `semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }`. It returns the element (carrying its `impl` production landing spot when one is registered), a candidate list capped at 10 plus the total (then ask the user — never pick one yourself), or `unregistered`.
 
 `prototype_snapshot` auto-increments `meta.version` after writing the snapshot. `meta.annotate_default: false` starts with badges hidden (the button reads `OFF`). With no dictionary the annotate tool writes nothing at all and previews keep working—the dictionary is an enhancement, not a blocker. A complete runnable example lives in [`examples/semantic-ui-map/`](./examples/semantic-ui-map/).
 
@@ -178,7 +179,7 @@ The command never creates directories: the project slug is decided by the agent 
 | `prototype_migration_execute` | The same sources plus user-confirmed `decisions` | Copies into `<product>/pages/<page-id>/<kind>/current/`, registers the pages in the product map, writes a migration report | Writes nothing unless the plan has zero unresolved items **and** `confirm` is true; never overwrites an existing target |
 | `semantic_ui_map_annotate` | `current/**/*.html` of the selected page stage, plus the product-level semantic dictionary | Adds `data-semantic-badge` / `data-status` to elements whose `id` matched a short code or full path, and injects the badge system (CSS + toggle button) | Idempotent, re-running never stacks; writes nothing at all when the dictionary is missing and just reports the skip; in `multi-page` mode it skips elements whose anchor points at another file |
 | `semantic_ui_map_validate` | The product-level semantic dictionary (`<project>/semantic-ui-map.yaml`) | Nothing (read-only) | Never writes; when the dictionary is absent it reports `status: "missing"` and says explicitly that no validation happened, never an empty problem list posing as a pass |
-| `semantic_ui_map_parse` | The same dictionary | Nothing (read-only) | Never writes, and never picks a candidate: an ambiguous alias returns at most 10 candidates plus the total and asks for a short code or a `page` context |
+| `semantic_ui_map_parse` | The same dictionary | Nothing (read-only) | Never writes, and never picks a candidate: an ambiguous alias returns at most 10 candidates plus the total and asks for a short code or a `page` context; a hit that has registered `impl` returns it, so the agent can walk on to the production source |
 
 The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets a stage's `current/**` — project-level or page-level — and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
@@ -269,7 +270,7 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
     ├── migration.ts           # migration review plan, execution, checks, report
     ├── preview.ts             # OS-default-browser launcher
     ├── requirement-editor.ts  # requirement dialog: submit key wins over newline
-    ├── semantic-ui-map.ts     # semantic dictionary: dual codes, loader, parser, six checks, version bump
+    ├── semantic-ui-map.ts     # semantic dictionary: dual codes, loader, parser, eight checks, version bump
     ├── semantic-ui-map-yaml.ts # minimal YAML parser (this schema's subset)
     ├── badge-template.ts      # badge CSS/JS templates and HTML injection
     ├── semantic-annotate.ts   # semantic_ui_map_annotate: lands the dictionary on current/ HTML
