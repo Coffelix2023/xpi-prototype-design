@@ -115,6 +115,14 @@ elements:
       wireframe: pages/chat/wireframe/current/index.html#P1-2-B1
 `;
 
+/**
+ * 同一份字典，但那个元素已推进生产——只多一个 `impl` 段。
+ * 直接拼在末尾是对的：`impl` 与 `fidelities` 同为 4 空格缩进的兄弟键。
+ */
+const PROMOTED_MAP =
+  CLEAN_MAP +
+  "    impl:\n      path: components/chat/composer.tsx\n      export: Composer\n      promoted_at: 2026-03-01\n";
+
 /** 两页共享同一个别名「按钮」——消歧的靶子。 */
 const SHARED_ALIAS_MAP = `meta:
   project: checkout
@@ -351,6 +359,7 @@ describe("semantic_ui_map_parse", () => {
     expect(details.status).toBe("matched");
     expect(details.element).toEqual({
       id: "chat.composer.send-btn",
+      impl: null,
       short: "P1-2-B1",
       status: "confirmed",
       type: "button",
@@ -360,6 +369,32 @@ describe("semantic_ui_map_parse", () => {
       },
     });
     expect(text).toContain("chat.composer.send-btn");
+  });
+
+  it("未推进生产的元素明说没有落点，不用空串顶上", async () => {
+    await writeMap("checkout", CLEAN_MAP);
+    const { details, text } = await parse({
+      input: "P1-2-B1",
+      project: "checkout",
+    });
+
+    expect(details.element?.impl).toBeNull();
+    expect(text).toContain("未登记生产落点");
+  });
+
+  it("已推进生产的元素带出 impl，文案给出生产落点", async () => {
+    await writeMap("checkout", PROMOTED_MAP);
+    const { details, text } = await parse({
+      input: "P1-2-B1",
+      project: "checkout",
+    });
+
+    expect(details.element?.impl).toEqual({
+      export: "Composer",
+      path: "components/chat/composer.tsx",
+      promoted_at: "2026-03-01",
+    });
+    expect(text).toContain("impl: components/chat/composer.tsx · export Composer");
   });
 
   it("全路径直接命中", async () => {

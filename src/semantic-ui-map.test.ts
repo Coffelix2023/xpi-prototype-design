@@ -430,6 +430,129 @@ describe("parseSemanticMap", () => {
   });
 });
 
+describe("parseSemanticMap — 生产映射与未知键", () => {
+  const META_LINES = [
+    "meta:",
+    "  project: demo",
+    "  version: 1",
+    "  type: spa",
+    "  updated: 2026-01-01 00:00",
+    "  annotate_default: true",
+  ];
+
+  function parseLines(lines: string[]): SemanticMap {
+    const map = parseSemanticMap(lines.join("\n"));
+    if (!map) throw new Error("fixture must parse");
+    return map;
+  }
+
+  it("闭集外的键收进 unknownKeys，位置写成 meta / pages.P1 / elements.<id> / ….fidelities", () => {
+    const map = parseLines([
+      ...META_LINES,
+      "  owner: 张三",
+      "pages:",
+      "  P1:",
+      "    id: chat",
+      "    label: 对话",
+      '    route: "#/chat"',
+      "    status: confirmed",
+      "    notes: 随手加的",
+      "elements:",
+      "  chat.composer:",
+      "    short: P1-2",
+      "    label: 输入区",
+      "    type: panel",
+      "    status: confirmed",
+      "    stage_created: wireframe",
+      "    shrot: P1-9",
+      '    fidelities: { wireframe: "#P1-2", hifi: null, production: "src/components/chat.tsx" }',
+    ]);
+
+    expect(map.unknownKeys).toEqual([
+      {
+        key: "owner",
+        where: "meta",
+      },
+      {
+        key: "notes",
+        where: "pages.P1",
+      },
+      {
+        key: "shrot",
+        where: "elements.chat.composer",
+      },
+      {
+        key: "production",
+        where: "elements.chat.composer.fidelities",
+      },
+    ]);
+  });
+
+  it("没有未知键时 unknownKeys 为 undefined，既有断言不受影响", () => {
+    expect(fixtureMap().unknownKeys).toBeUndefined();
+  });
+
+  it("归一化 impl：完整 / 缺 path / 裸字符串 / 完全没有", () => {
+    const map = parseLines([
+      ...META_LINES,
+      "pages: {}",
+      "elements:",
+      "  chat.composer.send-btn:",
+      "    short: P1-2-B1",
+      "    label: 发送按钮",
+      "    type: button",
+      "    status: locked",
+      "    stage_created: wireframe",
+      '    fidelities: { wireframe: "#P1-2-B1", hifi: null }',
+      "    impl:",
+      "      path: components/chat/composer.tsx",
+      "      export: Composer",
+      "      promoted_at: 2026-03-01",
+      "  chat.composer.input:",
+      "    short: P1-2-I1",
+      "    label: 消息输入框",
+      "    type: input",
+      "    status: locked",
+      "    stage_created: wireframe",
+      '    fidelities: { wireframe: "#P1-2-I1", hifi: null }',
+      "    impl:",
+      "      export: Input",
+      "  chat.composer.attach-btn:",
+      "    short: P1-2-B2",
+      "    label: 附件按钮",
+      "    type: button",
+      "    status: locked",
+      "    stage_created: wireframe",
+      '    fidelities: { wireframe: "#P1-2-B2", hifi: null }',
+      '    impl: "components/chat/attach.tsx"',
+      "  chat.composer.mic-btn:",
+      "    short: P1-2-B3",
+      "    label: 语音按钮",
+      "    type: button",
+      "    status: proposed",
+      "    stage_created: wireframe",
+      '    fidelities: { wireframe: "#P1-2-B3", hifi: null }',
+    ]);
+
+    const implOf = (id: string): unknown =>
+      map.elements.find((item) => item.id === id)?.impl;
+
+    expect(implOf("chat.composer.send-btn")).toEqual({
+      export: "Composer",
+      path: "components/chat/composer.tsx",
+      promoted_at: "2026-03-01",
+    });
+    expect(implOf("chat.composer.input")).toEqual({
+      export: "Input",
+      path: "",
+    });
+    expect(implOf("chat.composer.attach-btn")).toEqual({
+      path: "",
+    });
+    expect(implOf("chat.composer.mic-btn")).toBeUndefined();
+  });
+});
+
 describe("loadSemanticMap", () => {
   it("从 <project>/semantic-ui-map.yaml 读取", async () => {
     const root = await tempRoot();
@@ -1033,5 +1156,144 @@ describe("必填字段校验", () => {
       "label: 输入区",
     ]);
     expect(validateSemanticMap(map).errors).toEqual([]);
+  });
+});
+
+describe("validateSemanticMap — 生产映射", () => {
+  const META = [
+    "meta:",
+    "  project: demo",
+    "  version: 1",
+    "  type: spa",
+    "  updated: 2026-01-01 00:00",
+    "  annotate_default: true",
+  ];
+  const FIDELITIES = '    fidelities: { wireframe: "#P1-2-B1", hifi: null }';
+
+  /** 条目自带 id / short / label，其余字段由调用方按用例给。 */
+  function entry(id: string, short: string, lines: string[]): string[] {
+    return [
+      `  ${id}:`,
+      `    short: ${short}`,
+      `    label: ${id}`,
+      "    type: button",
+      "    status: confirmed",
+      "    stage_created: wireframe",
+      ...lines,
+    ];
+  }
+
+  function errorsOf(elementLines: string[]) {
+    const map = parseSemanticMap(
+      [
+        ...META,
+        "pages: {}",
+        "elements:",
+        ...elementLines,
+      ].join("\n"),
+    );
+    if (!map) throw new Error("fixture must parse");
+    return validateSemanticMap(map).errors;
+  }
+
+  function implErrors(implLines: string[]) {
+    return errorsOf(
+      entry("chat.composer.send-btn", "P1-2-B1", [
+        FIDELITIES,
+        ...implLines,
+      ]),
+    );
+  }
+
+  it("fidelities 出现 production 报 unknown-key：带元素路径与迁移提示", () => {
+    const errors = errorsOf(
+      entry("chat.composer.send-btn", "P1-2-B1", [
+        '    fidelities: { wireframe: "#P1-2-B1", hifi: null, production: "src/components/chat.tsx" }',
+      ]),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].code).toBe("unknown-key");
+    expect(errors[0].path).toBe("chat.composer.send-btn");
+    expect(errors[0].message).toContain("production");
+    expect(errors[0].message).toContain("impl 段");
+  });
+
+  it("没有未知键的字典不产生 unknown-key", () => {
+    expect(
+      errorsOf(
+        entry("chat.composer.send-btn", "P1-2-B1", [
+          FIDELITIES,
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("impl 缺失不报错：没推进生产是正常状态", () => {
+    expect(implErrors([])).toEqual([]);
+  });
+
+  it("格式合法的 impl 不报错", () => {
+    expect(
+      implErrors([
+        "    impl:",
+        "      path: components/chat/composer.tsx",
+        "      export: Composer",
+        "      promoted_at: 2026-03-01",
+      ]),
+    ).toEqual([]);
+  });
+
+  it("impl.path 为空 / 绝对路径 / 含 .. / 含 # 各报一条", () => {
+    const cases: [
+      string,
+      string[],
+    ][] = [
+      [
+        "为空",
+        [
+          "    impl:",
+          "      export: Composer",
+        ],
+      ],
+      [
+        "是绝对路径",
+        [
+          "    impl:",
+          '      path: "/etc/passwd"',
+        ],
+      ],
+      [
+        "含 .. 路径段",
+        [
+          "    impl:",
+          '      path: "../outside/comp.tsx"',
+        ],
+      ],
+      [
+        "含 # 片段",
+        [
+          "    impl:",
+          '      path: "app-rail.tsx#h1"',
+        ],
+      ],
+    ];
+
+    for (const [expected, lines] of cases) {
+      const errors = implErrors(lines);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].code).toBe("invalid-impl-path");
+      expect(errors[0].path).toBe("chat.composer.send-btn");
+      expect(errors[0].message).toContain(expected);
+    }
+  });
+
+  it("裸字符串 impl 收敛为 path 为空，走同一问题码而不是静默丢弃", () => {
+    const errors = implErrors([
+      '    impl: "components/chat/composer.tsx"',
+    ]);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].code).toBe("invalid-impl-path");
   });
 });

@@ -11,7 +11,7 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { ARTIFACT_ROOT, assertProjectSlug, formatStamp } from "./contracts.js";
-import type { YamlValue } from "./semantic-ui-map-yaml.js";
+import type { YamlMapping, YamlValue } from "./semantic-ui-map-yaml.js";
 import {
   parseYaml,
   yamlMapping,
@@ -91,6 +91,16 @@ export interface Fidelities {
   wireframe: string | null;
 }
 
+/** 生产实现映射：元素推进到生产代码后落在哪。缺失表示尚未推进，不是一个待补的空字段。 */
+export interface ImplMapping {
+  /** 导出的组件或函数名。 */
+  export?: string;
+  /** 生产源码路径，相对项目根。 */
+  path: string;
+  /** 推进日期。 */
+  promoted_at?: string;
+}
+
 export interface SemanticPage {
   /** 全路径页码，例如 `chat`。元素的 id 以它开头。 */
   id: string;
@@ -112,6 +122,8 @@ export interface SemanticElement {
   i18n_key?: string;
   /** 全路径，全局唯一。 */
   id: string;
+  /** 生产实现落点；缺失表示尚未推进生产，不是缺字段。 */
+  impl?: ImplMapping;
   label: string;
   order?: number;
   parent?: string;
@@ -131,13 +143,32 @@ export interface SemanticMapMeta {
   version: number;
 }
 
+/**
+ * 加载阶段被丢弃的键。`where` 是出现位置，例如 `meta` / `pages.P1` /
+ * `elements.chat.composer` / `elements.chat.composer.fidelities`。
+ *
+ * 这条信息只可能在加载层拿到——校验器收的是已归一化的 `SemanticMap`，没有 YAML 原文。
+ */
+export interface SemanticUnknownKey {
+  key: string;
+  where: string;
+}
+
 export interface SemanticMap {
   elements: SemanticElement[];
   meta: SemanticMapMeta;
   pages: SemanticPage[];
+  /**
+   * 加载时被丢弃的未知键；没有时为 undefined（不影响既有比较与序列化）。
+   * 校验器的绿灯只在「字典里写下的每一项都被读过并判定过」时给出。
+   */
+  unknownKeys?: SemanticUnknownKey[];
 }
 
-/** 校验问题码。4.x 扩展：循环引用、状态机非法、alias 冲突、fidelities 路径格式。 */
+/**
+ * 校验问题码。4.x 扩展：循环引用、状态机非法、alias 冲突、fidelities 路径格式。
+ * 生产映射轮次补两条：`unknown-key`（加载阶段被丢弃的键）与 `invalid-impl-path`。
+ */
 export type ValidationErrorCode =
   | "duplicate-id"
   | "duplicate-short"
@@ -145,7 +176,9 @@ export type ValidationErrorCode =
   | "cycle-reference"
   | "invalid-status-transition"
   | "duplicate-alias"
-  | "invalid-fidelity-path";
+  | "invalid-fidelity-path"
+  | "unknown-key"
+  | "invalid-impl-path";
 
 export interface ValidationError {
   code: ValidationErrorCode;
@@ -201,8 +234,44 @@ export function semanticMapPattern(projectRoot: string, project: string): string
  * 归一化跨阶段锚点。空串与 `~` 一样视为「还没到那个阶段」，读成 null。
  * 这样 `hifi:` 后面留空和写 `null` 不会产生两种语义。
  */
-function toFidelities(raw: YamlValue | undefined): Fidelities {
+/**
+ * 归一化时把闭集外的键记下来，交给校验器报 `unknown-key`。
+ *
+ * 允许的键集合写在各自的读取函数旁边，不另起一份字段清单——两处清单迟早会漂移。
+ */
+function collectUnknownKeys(
+  where: string,
+  mapping: YamlMapping,
+  known: readonly string[],
+  sink: SemanticUnknownKey[],
+): void {
+  for (const key of Object.keys(mapping)) {
+    if (!known.includes(key))
+      sink.push({
+        where,
+        key,
+      });
+  }
+}
+
+const FIDELITY_KEYS = [
+  "hifi",
+  "wireframe",
+] as const;
+
+/**
+ * 归一化跨阶段锚点。空串与 `~` 一样视为「还没到那个阶段」，读成 null。
+ * 这样 `hifi:` 后面留空和写 `null` 不会产生两种语义。
+ *
+ * `where` 只为未知键报告服务：`fidelities` 是闭集，`production` 之类的键不该在这儿。
+ */
+function toFidelities(
+  raw: YamlValue | undefined,
+  where: string,
+  unknownKeys: SemanticUnknownKey[],
+): Fidelities {
   const mapping = yamlMapping(raw) ?? {};
+  collectUnknownKeys(where, mapping, FIDELITY_KEYS, unknownKeys);
   const anchor = (value: YamlValue | undefined): string | null => {
     const text = yamlString(value);
     return text && text.length > 0 ? text : null;
@@ -238,8 +307,20 @@ function toProps(
   return Object.keys(props).length > 0 ? props : undefined;
 }
 
-function toMeta(raw: YamlValue | undefined): SemanticMapMeta {
+const META_KEYS = [
+  "project",
+  "version",
+  "type",
+  "updated",
+  "annotate_default",
+] as const;
+
+function toMeta(
+  raw: YamlValue | undefined,
+  unknownKeys: SemanticUnknownKey[],
+): SemanticMapMeta {
   const mapping = yamlMapping(raw) ?? {};
+  collectUnknownKeys("meta", mapping, META_KEYS, unknownKeys);
   return {
     annotate_default:
       typeof mapping.annotate_default === "boolean" ? mapping.annotate_default : true,
@@ -250,13 +331,24 @@ function toMeta(raw: YamlValue | undefined): SemanticMapMeta {
   };
 }
 
-function toPages(raw: YamlValue | undefined): SemanticPage[] {
+const PAGE_KEYS = [
+  "id",
+  "label",
+  "route",
+  "status",
+] as const;
+
+function toPages(
+  raw: YamlValue | undefined,
+  unknownKeys: SemanticUnknownKey[],
+): SemanticPage[] {
   const mapping = yamlMapping(raw);
   if (!mapping) return [];
   const pages: SemanticPage[] = [];
   for (const [short, value] of Object.entries(mapping)) {
     const source = yamlMapping(value);
     if (!source) continue;
+    collectUnknownKeys(`pages.${short}`, source, PAGE_KEYS, unknownKeys);
     pages.push({
       id: yamlString(source.id) ?? "",
       label: yamlString(source.label) ?? "",
@@ -268,12 +360,60 @@ function toPages(raw: YamlValue | undefined): SemanticPage[] {
   return pages;
 }
 
+const ELEMENT_KEYS = [
+  "id",
+  "short",
+  "label",
+  "type",
+  "status",
+  "stage_created",
+  "fidelities",
+  "impl",
+  "aliases",
+  "behavior",
+  "children",
+  "parent",
+  "i18n_key",
+  "order",
+  "props",
+] as const;
+
+/**
+ * 归一化生产实现映射（design D5）。只做形状归一，不碰文件系统：推进既可能
+ * 「先登记后实现」也可能「先实现后登记」，查存在性会让刚登记的映射被判红，
+ * Agent 就会去删映射而不是去写实现。
+ *
+ * `impl` 存在但不是映射（例如写成裸字符串）时收敛为 `path: ""`，交给
+ * `invalid-impl-path` 报出，不静默丢弃。
+ */
+function toImpl(raw: YamlValue | undefined): ImplMapping | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const source = yamlMapping(raw) ?? {};
+  const impl: ImplMapping = {
+    path: yamlString(source.path) ?? "",
+  };
+  const exportName = yamlString(source.export);
+  if (exportName) impl.export = exportName;
+  const promotedAt = yamlString(source.promoted_at);
+  if (promotedAt) impl.promoted_at = promotedAt;
+  return impl;
+}
+
 /** 单个元素条目。`id` 来自映射键或条目字段，两条路径共用这一处归一化。 */
-function toElement(id: string, raw: YamlValue): SemanticElement | null {
+function toElement(
+  id: string,
+  raw: YamlValue,
+  unknownKeys: SemanticUnknownKey[],
+): SemanticElement | null {
   const source = yamlMapping(raw);
   if (!source) return null;
+  collectUnknownKeys(`elements.${id}`, source, ELEMENT_KEYS, unknownKeys);
   const element: SemanticElement = {
-    fidelities: toFidelities(source.fidelities),
+    fidelities: toFidelities(
+      source.fidelities,
+      `elements.${id}.fidelities`,
+      unknownKeys,
+    ),
     id,
     label: yamlString(source.label) ?? "",
     short: yamlString(source.short) ?? "",
@@ -300,6 +440,8 @@ function toElement(id: string, raw: YamlValue): SemanticElement | null {
   if (parent) element.parent = parent;
   const props = toProps(source.props);
   if (props) element.props = props;
+  const impl = toImpl(source.impl);
+  if (impl) element.impl = impl;
   return element;
 }
 
@@ -314,13 +456,16 @@ function toElement(id: string, raw: YamlValue): SemanticElement | null {
  * 映射式的重复键在 YAML 层就被拒绝；序列式才可能在 id 上撞车，
  * 那正是 `checkUniqueness` 要报的错。
  */
-function toElements(raw: YamlValue | undefined): SemanticElement[] {
+function toElements(
+  raw: YamlValue | undefined,
+  unknownKeys: SemanticUnknownKey[],
+): SemanticElement[] {
   const elements: SemanticElement[] = [];
   if (Array.isArray(raw)) {
     for (const item of raw) {
       const id = yamlString(yamlMapping(item)?.id);
       if (id === undefined) continue;
-      const element = toElement(id, item);
+      const element = toElement(id, item, unknownKeys);
       if (element) elements.push(element);
     }
     return elements;
@@ -328,7 +473,7 @@ function toElements(raw: YamlValue | undefined): SemanticElement[] {
   const mapping = yamlMapping(raw);
   if (!mapping) return [];
   for (const [id, value] of Object.entries(mapping)) {
-    const element = toElement(id, value);
+    const element = toElement(id, value, unknownKeys);
     if (element) elements.push(element);
   }
   return elements;
@@ -344,11 +489,17 @@ function toElements(raw: YamlValue | undefined): SemanticElement[] {
 export function parseSemanticMap(source: string): SemanticMap | null {
   const top = yamlMapping(parseYaml(source));
   if (!top || !yamlMapping(top.meta)) return null;
-  return {
-    elements: toElements(top.elements),
-    meta: toMeta(top.meta),
-    pages: toPages(top.pages),
+  const unknownKeys: SemanticUnknownKey[] = [];
+  const meta = toMeta(top.meta, unknownKeys);
+  const pages = toPages(top.pages, unknownKeys);
+  const elements = toElements(top.elements, unknownKeys);
+  const map: SemanticMap = {
+    elements,
+    meta,
+    pages,
   };
+  if (unknownKeys.length > 0) map.unknownKeys = unknownKeys;
+  return map;
 }
 
 /**
@@ -694,23 +845,103 @@ export interface ValidationResult {
 }
 
 /**
- * 4.1 validateSemanticMap — 集成六类检查。
+ * 4.1 validateSemanticMap — 集成八类检查。
  *
- * 按顺序执行：必填字段 → ID/短码唯一性 → 循环引用 → 状态机 → alias 重复
- * → fidelities 路径格式。
+ * 按顺序执行：加载阶段丢弃的键 → 必填字段 → ID/短码唯一性 → 循环引用 →
+ * 状态机 → alias 重复 → fidelities 路径格式 → impl 路径格式。
+ *
+ * `unknown-key` 排在最前是有意的：后面七类都建立在「读到的就是字典里写的」这个前提上。
  */
 export function validateSemanticMap(map: SemanticMap): ValidationResult {
   const errors: ValidationError[] = [];
+  errors.push(...validateUnknownKeys(map));
   errors.push(...detectMissingFields(map));
   errors.push(...checkUniqueness(map));
   errors.push(...detectCycles(map));
   errors.push(...validateStatusTransitions(map));
   errors.push(...detectDuplicateAliases(map));
   errors.push(...validateFidelityPaths(map));
+  errors.push(...validateImplPaths(map));
   return {
     errors,
     valid: errors.length === 0,
   };
+}
+
+/**
+ * 加载阶段被丢弃的键 → `unknown-key`。
+ *
+ * `validateSemanticMap` 收的是已归一化的 `SemanticMap`，没有 YAML 原文，所以这条信息
+ * 只能由 `unknownKeys` 带过来（design D6），这也是本 change 唯一的结构性改动。
+ *
+ * 报错而不是发警告是有意的：静默丢弃会让「字典已登记生产映射」与「字典没有生产映射」
+ * 在工具输出里长得完全一样，绿灯就成了假绿灯（design D2）。
+ */
+function validateUnknownKeys(map: SemanticMap): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (const { where, key } of map.unknownKeys ?? []) {
+    const error: ValidationError = {
+      code: "unknown-key",
+      message: unknownKeyMessage(where, key),
+    };
+    const path = elementPathOf(where);
+    if (path) error.path = path;
+    errors.push(error);
+  }
+  return errors;
+}
+
+/** `elements.<id>` / `elements.<id>.fidelities` → `<id>`；其余位置没有对应的元素。 */
+function elementPathOf(where: string): string | null {
+  const suffix = ".fidelities";
+  const base = where.endsWith(suffix) ? where.slice(0, -suffix.length) : where;
+  return base.startsWith("elements.") ? base.slice("elements.".length) : null;
+}
+
+function unknownKeyMessage(where: string, key: string): string {
+  if (key === "production" && where.endsWith(".fidelities")) {
+    return `「${where}」里的 production 不是合法保真度：生产实现写在元素的 impl 段（path / export / promoted_at），不写进 fidelities`;
+  }
+  return `「${where}」里有字典不认识的键「${key}」：删掉它，或按 docs/semantic-ui-map-schema.md 换成合法字段`;
+}
+
+/**
+ * `impl` 路径格式校验（design D4 / D5）。
+ *
+ * 只查格式，不查文件是否存在：推进既可能「先登记后实现」也可能「先实现后登记」，
+ * 规则不该假设顺序——查存在性会把刚登记的映射判红，Agent 就会去删映射而不是去写实现。
+ * `impl` 缺失不报：那表示元素尚未推进生产，是正常状态。
+ */
+function validateImplPaths(map: SemanticMap): ValidationError[] {
+  const errors: ValidationError[] = [];
+  for (const element of map.elements) {
+    if (!element.impl) continue;
+    const problem = implPathProblem(element.impl.path);
+    if (!problem) continue;
+    errors.push({
+      code: "invalid-impl-path",
+      message: `元素「${element.id}」的 impl.path「${element.impl.path}」${problem}`,
+      path: element.id,
+    });
+  }
+  return errors;
+}
+
+/** 返回第一条不满足的规则；全满足返回 null。逐条判、只报一条，避免一句话里叠四宗罪。 */
+function implPathProblem(path: string): string | null {
+  if (path.length === 0) {
+    return "为空：登记生产实现必须给出相对项目根的源码路径";
+  }
+  if (path.startsWith("/")) {
+    return "是绝对路径：应为相对项目根的路径";
+  }
+  if (path.split("/").includes("..")) {
+    return "含 .. 路径段：不得越出项目根";
+  }
+  if (path.includes("#")) {
+    return "含 # 片段：行级定位靠源码里的 data-semantic-id，选择器不写进字典";
+  }
+  return null;
 }
 
 /**

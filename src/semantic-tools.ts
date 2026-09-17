@@ -18,6 +18,7 @@ import { Type } from "typebox";
 import {
   type ElementType,
   type Fidelities,
+  type ImplMapping,
   loadSemanticMap,
   parseInput,
   type SemanticElement,
@@ -48,6 +49,8 @@ function truncate(text: string): string {
 export interface ElementSummary {
   fidelities: Fidelities;
   id: string;
+  /** 生产落点；还没推进生产时为 null，不是缺字段。 */
+  impl: ImplMapping | null;
   short: string;
   status: Status;
   type: ElementType;
@@ -57,6 +60,7 @@ function summarize(element: SemanticElement): ElementSummary {
   return {
     fidelities: element.fidelities,
     id: element.id,
+    impl: element.impl ?? null,
     short: element.short,
     status: element.status,
     type: element.type,
@@ -252,6 +256,14 @@ function fidelityLine(element: ElementSummary): string {
   return `fidelities: wireframe=${wireframe ?? "—"} · hifi=${hifi ?? "—"}`;
 }
 
+/** 生产落点。没登记就说没登记，不伪造路径顶上。 */
+function implLine(element: ElementSummary): string {
+  const impl = element.impl;
+  if (!impl) return "impl: 未登记生产落点（该元素尚未推进生产）";
+  const exported = impl.export ? ` · export ${impl.export}` : "";
+  return `impl: ${impl.path}${exported}`;
+}
+
 function elementLine(element: ElementSummary): string {
   return `  ${element.id} — short ${element.short} · ${element.type} · ${element.status}`;
 }
@@ -296,6 +308,7 @@ function parseText(result: ParseToolResult, project: string, input: string): str
     return [
       `「${input}」→ ${result.element.id}（short ${result.element.short} · ${result.element.type} · ${result.element.status}）`,
       fidelityLine(result.element),
+      implLine(result.element),
     ].join("\n");
   }
   if (result.status === "ambiguous") {
@@ -312,7 +325,7 @@ function parseText(result: ParseToolResult, project: string, input: string): str
 export function registerSemanticReadTools(pi: ExtensionAPI): void {
   pi.registerTool({
     description:
-      "只读校验项目的 semantic-ui-map.yaml：ID / 短码冲突、循环引用、非法状态转换、alias 重复、fidelities 路径格式。返回三态 status（valid / invalid / missing）与问题码列表（code + 元素路径 + 说明），不写盘。字典缺失时明说「未做校验」，不返回空列表冒充通过。",
+      "只读校验项目的 semantic-ui-map.yaml：ID / 短码冲突、循环引用、非法状态转换、alias 重复、fidelities 路径格式、闭集外的键（unknown-key）、impl 路径格式。返回三态 status（valid / invalid / missing）与问题码列表（code + 元素路径 + 说明），不写盘。字典缺失时明说「未做校验」，不返回空列表冒充通过。",
     label: "校验语义字典",
     name: "semantic_ui_map_validate",
     parameters: Type.Object({
@@ -336,7 +349,7 @@ export function registerSemanticReadTools(pi: ExtensionAPI): void {
 
   pi.registerTool({
     description:
-      "只读解析用户的口语引用：短码（P1-2-B1）、全路径（chat.composer.send-btn）或中文别名 → 元素。命中返回元素摘要（id / short / status / type / fidelities）；别名多候选时返回封顶 10 条候选 + 总数，要求消歧而不自行挑一个；没登记就报「没登记」。可选 page 参数把搜索收窄到某个页面（页面短码 P1 或全路径 chat）。不写盘。",
+      "只读解析用户的口语引用：短码（P1-2-B1）、全路径（chat.composer.send-btn）或中文别名 → 元素。命中返回元素摘要（id / short / status / type / fidelities / impl）；别名多候选时返回封顶 10 条候选 + 总数，要求消歧而不自行挑一个；没登记就报「没登记」。可选 page 参数把搜索收窄到某个页面（页面短码 P1 或全路径 chat）。不写盘。",
     label: "解析语义元素引用",
     name: "semantic_ui_map_parse",
     parameters: Type.Object({

@@ -42,6 +42,7 @@ export {
 export {
   ELEMENT_TYPES,
   type ElementType,
+  type ImplMapping,
   MAP_TYPES,
   type MapType,
   PROP_TYPES,
@@ -51,6 +52,7 @@ export {
   type SemanticMap,
   type SemanticMapMeta,
   type SemanticPage,
+  type SemanticUnknownKey,
   STAGES,
   STATUSES,
   type Stage,
