@@ -57,7 +57,9 @@
 3. HTML 里每个可修改元素的 `id` 写成它的短码或全路径。
 4. 产出后调一次 `semantic_ui_map_annotate { project, pageId, kind }`：给 id 命中的元素补 `data-semantic-badge` / `data-status`，并注入徽标系统（CSS + 右上角开关按钮）。幂等，可重复调。
 5. 用户用口语指元素时调 `semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }`：返回元素（已登记 `impl` 时一并带出生产落点）、或封顶 10 条候选加总数（此时必须问用户，不得自己挑）、或「未登记」。
-6. 元素推进到生产之后调 `prototype_promotion_check { project, pageId }`：按每个元素的 `impl.path` 找到源码文件，匹配里面 `data-semantic-id` 的**全路径**值，四类分开报——已推进但源码里找不到、容器搬了而 `locked` 子项没搬、源码有而字典没登记、命中。只读：不写盘、不阻断、不参与写盘门禁。`locked` 就是子项在说「我要进生产」，所以「菜单触发器搬了、菜单项没搬」正是未推进的 `locked` 子项的形态。
+6. 元素推进到生产之后调 `prototype_promotion_check { project, pageId }` —— 或它在 CI 里的孪生入口 `node node_modules/@fx-pi/xpi-prototype-design/bin/check-promotion.mjs --project <slug>`，两者调的是**同一个**判定函数与**同一个**渲染函数。它按每个元素的 `impl.path` 找到源码文件，匹配 `data-semantic-id` 的**全路径**值，且**只认属性形态**——绝不放宽成「这个值在文件里出现过」，那正是一张常量表就能骗过核对的方式。五类分开报：已推进但源码里找不到、属性写成动态表达式（静态核对看不到）、容器搬了而 `locked` 子项没搬、源码有而字典没登记、命中。只读：不写盘、不阻断、不参与写盘门禁。命令入口在字典缺失或读不出来时同样非零退出，CI 不会在什么都没核对的情况下变绿。
+
+> **不要自己写判定脚本。** 同一条规则的第二个实现必然会漂移——实测过一次：手写的 `rg` 脚本报 `OK: 16`，工具对同一份源码报「命中 10，缺 6」。而且两类问题的修法完全不同，不能混：`missing_in_source` 是去写源码，`dynamic_attribute` 是去确认渲染点到底输出了什么。装不了本包时，抄口径而不是抄实现——`data-semantic-id` 的**全路径**值，只认属性形态。
 
 `prototype_snapshot` 会在存快照之后自动递增 `meta.version`；`meta.annotate_default: false` 让徽标初始隐藏（按钮显示 `OFF`）。没有字典时标注工具一个字节都不写，预览照常——字典是增强，不是阻塞项。完整可运行示例见 [`examples/semantic-ui-map/`](./examples/semantic-ui-map/)。
 
@@ -183,7 +185,8 @@ pi remove git:github.com/<owner>/xpi-prototype-design
 | `semantic_ui_map_annotate` | 所选页面阶段的 `current/**/*.html` 与产品级语义字典 | 给 `id` 与短码/全路径命中的元素补 `data-semantic-badge` / `data-status`，注入徽标系统（CSS + 开关按钮） | 幂等，重复调用不叠加；字典不存在时一个字节都不写，只报告跳过；`multi-page` 下不标注锚点指向别的文件的元素 |
 | `semantic_ui_map_validate` | 产品级语义字典（`<project>/semantic-ui-map.yaml`） | 不改任何东西（只读） | 绝不写盘；字典缺失时返回 `status: "missing"` 并明说「未做校验」，绝不把空问题码列表伪装成通过 |
 | `semantic_ui_map_parse` | 同一份字典 | 不改任何东西（只读） | 绝不写盘，也绝不替用户挑候选：别名多候选时返回最多 10 条加总数，要求给短码或 `page` 上下文；命中已登记 `impl` 的元素时把它一并返回，让 Agent 能接着走到生产源码 |
-| `prototype_promotion_check` | 已登记的生产落点（`impl.path`）与那些源码文件 | 不改任何东西（只读） | 绝不写盘、绝不阻断，也不参与写盘许可。四类分开报：已推进但源码里找不到、容器搬了而 `locked` 子项没搬、源码有而字典没登记、命中。只匹配**全路径**值——源码里写短码会报成未登记而不是命中。字典缺失或读不出来时明说「未做核对」 |
+| `prototype_promotion_check` | 已登记的生产落点（`impl.path`）与那些源码文件 | 不改任何东西（只读） | 绝不写盘、绝不阻断，也不参与写盘许可。五类分开报：已推进但源码里找不到、属性写成动态表达式、容器搬了而 `locked` 子项没搬、源码有而字典没登记、命中。只匹配**全路径**值的**属性形态**——源码里写短码，或该值只出现在一张常量表里，都会报成未登记而不是命中。字典缺失或读不出来时明说「未做核对」 |
+| `check-promotion`（命令入口） | 与上一条同样的输入，从命令行的 `--project` / `--page` / `--cwd` 取 | 与工具同一份输出：**一个**判定函数、**一个**渲染函数 | 绝不写盘。退出码 fail-closed：`clean` → 0；`issues` → 1；`missing` / `unreadable` → 1；用法或环境错误 → 2。包路径随安装方式不同——`node node_modules/@fx-pi/xpi-prototype-design/bin/check-promotion.mjs` |
 写盘门禁在 `gate.ts` 里注册一个 `tool_call` 钩子：`write` / `edit` 目标是某阶段的 `current/**`（项目级或页面级），且 `gate.json` 里没有**本轮**的 `execute`（答案不是 `execute`，或 `baseline` 与当前版本数不一致）时直接 block，并把原因回灌给模型。`plan.md` / `tasks.md` 这些台账不在门禁范围——它们的真实内容正好要在用户确认之后才写（`prototype_setup` 只放空骨架）。
 `project` 是信任边界：必须匹配 `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/`，两层校验（工具 schema 与 `artifacts.ts`）。所有路径都由 `ctx.cwd` 推导，任何工具都不接受模型传入的任意文件系统根目录。工具输出上限 2000 字符。
 
@@ -277,7 +280,9 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # 日常回路:在 
     ├── badge-template.ts      # 徽标 CSS/JS 模板与 HTML 注入
     ├── semantic-annotate.ts   # semantic_ui_map_annotate:把字典落到 current/ 的 HTML
     ├── semantic-tools.ts      # semantic_ui_map_validate / semantic_ui_map_parse:只读
-    ├── promotion-check.ts     # prototype_promotion_check:字典 ↔ 成品源码核对,只读
+    ├── promotion-check.ts     # prototype_promotion_check:Pi 工具外壳(只放 typebox 与 schema)
+    ├── promotion-core.ts      # 判定与渲染本体:零 typebox、零 Pi 运行时
+    ├── semantic-map-io.ts     # readProjectMap:零 typebox,使核心能在会话外被复用
     ├── tools.ts               # 注册的读写工具
     ├── gate.ts                # 计划闸门工具 + current/ 写入门禁
 ```

@@ -178,7 +178,8 @@ props:
 | `semantic_ui_map_validate` | `{ project }` | `status`：`valid` / `invalid` / `missing` / `unreadable`；`errors[]`（`code` + `path` + `message`，封顶 10 条）；`total` / `shown` 计数；`version` | 否 |
 | `semantic_ui_map_parse` | `{ project, input, page? }` | `status`：`matched` / `ambiguous` / `unregistered` / `missing` / `unreadable`；命中给元素摘要（`id` / `short` / `type` / `status` / `fidelities` / `impl`，未推进生产时 `impl` 为 `null`），多候选给封顶 10 条 + `total` | 否 |
 | `semantic_ui_map_annotate` | `{ project, pageId, kind }` | 标注了哪些文件、各补了几处徽标、哪些文件没命中 | 是（只写该页面阶段 `current/`） |
-| `prototype_promotion_check` | `{ project, pageId? }` | 四类分开报：已推进但源码找不到（带 `impl.path`）、容器搬了子项没搬（列出未推进的子元素）、源码有而字典没登记、命中计数；各类分别封顶并报总数 | 否（读成品源码） |
+| `prototype_promotion_check` | `{ project, pageId? }` | 五类分开报：已推进但源码找不到（带 `impl.path`）、属性写成动态表达式（该文件里有 `data-semantic-id={...}` 而该元素不是字面量）、容器搬了子项没搬（列出未推进的子元素）、源码有而字典没登记、命中计数；各类分别封顶并报总数 | 否（读成品源码） |
+| `check-promotion`（命令入口） | `--project <slug>` `[--page <pageId>]` `[--cwd <dir>]` | 与上一条**同源**：同一个判定函数、同一个渲染函数。退出码 fail-closed：`clean` → 0；`issues` / `missing` / `unreadable` → 1；用法或环境错误 → 2 | 否 |
 
 分工与边界：
 
@@ -186,7 +187,9 @@ props:
 - **未知键由加载层带出来**：`validateSemanticMap` 收的是已归一化的 `SemanticMap`，没有 YAML 原文，所以加载阶段丢弃的键记在 `SemanticMap.unknownKeys` 上，再由校验器报 `unknown-key`。这是「不静默通过」这条纪律唯一的实现路径。
 - `missing`（文件不存在）与 `unreadable`（文件在、但 YAML 坏或缺 `meta`）是两回事，而且都**不是「通过」**：没校验就说没校验。`validateSemanticMap` 收的是已解析的 map，本来就没有「缺失」这一态，所以这两态在工具层补。
 - 输出上限 2000 字符，列表类另按 10 条封顶，并一律报「共 N 条，已显示 M 条」——截断不能被当成完整结果。
-- 三个只读工具（`validate` / `parse` / `promotion_check`）都不经过计划闸门（`src/gate.ts` 只拦 `current/**` 的 `write` / `edit`），也不改变它的射程。分文件的理由也在这里：一个模块碰不碰盘、碰哪一种盘，看文件名就该知道——`semantic-tools.ts` 只读 YAML，`promotion-check.ts` 多了一样东西：**读任意成品源码**，所以它单独一个文件。
+- 三个只读工具（`validate` / `parse` / `promotion_check`）都不经过计划闸门（`src/gate.ts` 只拦 `current/**` 的 `write` / `edit`），也不改变它的射程。
+- 分文件的理由也在这里：一个模块碰不碰盘、碰哪一种盘，看文件名就该知道。`semantic-tools.ts` 只读 YAML；`bin/check-promotion.mjs` 要读**任意成品源码**，所以判定被单独拆到不依赖 `typebox`、也不依赖 Pi 运行时的 `promotion-core.ts`——判定只要不能被会话外调用，客户端就会自己复写一份，而两份实现必然漂移。读字典那一层在 `semantic-map-io.ts`，同样零依赖声明。
+- `docs/notes/` 里那段 bash 核对脚本是**降级替代**：只在装不了本包时才用，口径必须与命令入口一致（只匹配 `data-semantic-id` 的全路径值）。
 
 ## 12. 支持的 YAML 子集
 
