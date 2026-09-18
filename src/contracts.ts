@@ -513,29 +513,30 @@ export function highestVersion(versions: readonly number[]): number {
 }
 
 export interface ChangelogEntryInput {
-  /**
-   * 本轮被裁剪的旧版本；没有裁剪时不传。
-   *
-   * `stage` 是这些版本的所属阶段（相对项目根），取回命令要从它派生。
-   */
+  /** 本轮被裁剪的旧版本；没有裁剪时不传。取回命令从 `stage` 派生。 */
   archived?: {
     dir: string;
-    stage: string;
     versions: readonly number[];
   };
   change: string;
   files?: readonly string[];
-  kind: Kind;
-  /** 阶段所属项目 slug；拼回滚路径时必须带上它。 */
-  project: string;
   reason?: string;
   /** 回滚基准版本；v1 传 null。 */
   rollbackFrom: number | null;
+  /**
+   * 阶段目录，相对项目根。回滚与取回命令都从它派生。
+   *
+   * 刻意收**路径**而不是 `project` + `kind` 去拼：同一个路径公式在别处已经有一份
+   * （`stagePath` / `pageStagePath`），两份公式就是台账路径漂移的温床——本项目
+   * 就出过一次（历史 CHANGELOG 的回滚命令指向搬迁前的基准）。
+   */
+  stage: string;
   stamp: string;
   version: number;
 }
 
-export function renderEntryTitle(input: ChangelogEntryInput): string {
+/** 条目标题只用到这两个字段；收窄参数是为了让调用方不必为了拼标题凑齐整个条目。 */
+export function renderEntryTitle(input: { stamp: string; version: number }): string {
   return `${input.stamp} · v${input.version}`;
 }
 
@@ -551,23 +552,22 @@ export function renderChangelogEntry(input: ChangelogEntryInput): string {
   }
   if (input.rollbackFrom !== null) {
     lines.push(
-      `- 回滚到 v${input.rollbackFrom}：${rollbackCommand(input.project, input.kind, input.rollbackFrom)}`,
+      `- 回滚到 v${input.rollbackFrom}：${rollbackCommand(input.stage, input.rollbackFrom)}`,
     );
   }
   if (input.archived && input.archived.versions.length > 0) {
     const list = input.archived.versions.map((version) => `v${version}`).join(" ");
     const oldest = input.archived.versions[0];
     lines.push(
-      `- 旧版本归档：${list} 已移动到 ${input.archived.dir}/（取回：mv ${input.archived.dir}/v${oldest} ${input.archived.stage}/）`,
+      `- 旧版本归档：${list} 已移动到 ${input.archived.dir}/（取回：mv ${input.archived.dir}/v${oldest} ${input.stage}/）`,
     );
   }
   return lines.join("\n");
 }
 
 /** 单个阶段的回滚命令：把 vN 的内容覆盖回 current/。 */
-export function rollbackCommand(project: string, kind: Kind, version: number): string {
-  const base = `${ARTIFACT_ROOT}/${project}/${kind}`;
-  return `cp -R ${base}/v${version}/. ${base}/${CURRENT_DIR}/`;
+export function rollbackCommand(stage: string, version: number): string {
+  return `cp -R ${stage}/v${version}/. ${stage}/${CURRENT_DIR}/`;
 }
 
 /** 阶段内的旧版本归档目录，相对项目根。 */

@@ -255,8 +255,7 @@ describe("renderChangelogEntry", () => {
   it("omits the rollback line for v1 and includes it afterwards", () => {
     const base = {
       change: "首版",
-      kind: "wireframe" as const,
-      project: "subscription-page",
+      stage: ".pi/prototype-design/subscription-page/wireframe",
       stamp: "2026-09-13 10:00",
       version: 1,
     };
@@ -272,7 +271,7 @@ describe("renderChangelogEntry", () => {
         rollbackFrom: 1,
         version: 2,
       }),
-    ).toContain(rollbackCommand("subscription-page", "wireframe", 1));
+    ).toContain(rollbackCommand(".pi/prototype-design/subscription-page/wireframe", 1));
     expect(
       renderChangelogEntry({
         ...base,
@@ -285,10 +284,9 @@ describe("renderChangelogEntry", () => {
   it("records reason and files when supplied", () => {
     const entry = renderChangelogEntry({
       change: "hero 改上下堆叠",
-      kind: "hifi",
-      project: "subscription-page",
       reason: "移动端优先",
       rollbackFrom: null,
+      stage: ".pi/prototype-design/subscription-page/hifi",
       stamp: "2026-09-13 10:00",
       version: 1,
       files: [
@@ -302,14 +300,12 @@ describe("renderChangelogEntry", () => {
   it("裁剪旧版本时记下归档目录与取回命令", () => {
     const entry = renderChangelogEntry({
       change: "第 11 个版本",
-      kind: "wireframe",
-      project: "subscription-page",
       rollbackFrom: 10,
+      stage: ".pi/prototype-design/subscription-page/wireframe",
       stamp: "2026-09-16 10:00",
       version: 11,
       archived: {
         dir: ".pi/prototype-design/subscription-page/wireframe/archive",
-        stage: ".pi/prototype-design/subscription-page/wireframe",
         versions: [
           1,
           2,
@@ -328,13 +324,34 @@ describe("renderChangelogEntry", () => {
   it("没有裁剪时不写归档行", () => {
     const entry = renderChangelogEntry({
       change: "小改动",
-      kind: "hifi",
-      project: "subscription-page",
       rollbackFrom: null,
+      stage: ".pi/prototype-design/subscription-page/hifi",
       stamp: "2026-09-16 10:00",
       version: 1,
     });
     expect(entry).not.toContain("旧版本归档");
+  });
+});
+
+/**
+ * 回归：回滚命令只从**传进来的阶段路径**派生，不自己拼 `project` + `kind`。
+ *
+ * 这条断言存在的理由是本项目真出过的事故：历史 CHANGELOG 里的回滚命令指向
+ * 搬迁**前**的基准，照抄会失败 24 次。根因就是同一个路径公式存在两份
+ * （这里手写一份、`stagePath` / `pageStagePath` 各一份）。收窄成收路径之后，
+ * 项目级与页面级两种阶段都只能由调用方给对路径。
+ */
+describe("rollbackCommand", () => {
+  it("项目级阶段", () => {
+    expect(rollbackCommand(".pi/prototype-design/demo/wireframe", 3)).toBe(
+      "cp -R .pi/prototype-design/demo/wireframe/v3/. .pi/prototype-design/demo/wireframe/current/",
+    );
+  });
+
+  it("页面级阶段带上 pages/<pageId> 那一层", () => {
+    expect(rollbackCommand(".pi/prototype-design/demo/pages/home/hifi", 2)).toBe(
+      "cp -R .pi/prototype-design/demo/pages/home/hifi/v2/. .pi/prototype-design/demo/pages/home/hifi/current/",
+    );
   });
 });
 

@@ -217,16 +217,14 @@ export async function snapshotPageArtifact(
       archived.versions.length > 0
         ? {
             dir: archived.dir,
-            stage: pageStagePath(project, pageId, kind),
             versions: archived.versions,
           }
         : undefined,
     change: input.change,
     files: input.files,
-    kind,
-    project: `${project}/${pageId}`,
     reason: input.reason,
     rollbackFrom: version > 1 ? version - 1 : null,
+    stage: pageStagePath(project, pageId, kind),
     stamp,
     version,
   });
@@ -235,10 +233,6 @@ export async function snapshotPageArtifact(
     archivedVersions: archived.versions,
     changelogPath: relative(resolve(projectRoot), changelogPath).split(sep).join("/"),
     entry: renderEntryTitle({
-      change: input.change,
-      kind,
-      project,
-      rollbackFrom: null,
       stamp,
       version,
     }),
@@ -246,7 +240,7 @@ export async function snapshotPageArtifact(
     project,
     rollbackCommand:
       version > 1
-        ? rollbackCommand(`${project}/pages/${pageId}`, kind, version - 1)
+        ? rollbackCommand(pageStagePath(project, pageId, kind), version - 1)
         : null,
     version,
     versionArchiveDir: archived.versions.length > 0 ? archived.dir : null,

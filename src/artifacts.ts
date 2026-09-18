@@ -48,6 +48,7 @@ import {
   rollbackCommand,
   type SetupResult,
   type SnapshotResult,
+  stagePath,
   TASKS_FILE,
   type TaskProgress,
   THEMES_FILE,
@@ -253,16 +254,14 @@ export async function snapshotArtifact(
       archived.versions.length > 0
         ? {
             dir: archived.dir,
-            stage: toPattern(projectRoot, directory),
             versions: archived.versions,
           }
         : undefined,
     change: input.change,
     files: input.files,
-    kind,
-    project,
     reason: input.reason,
     rollbackFrom: version > 1 ? version - 1 : null,
+    stage: stagePath(project, kind),
     stamp,
     version,
   });
@@ -277,16 +276,13 @@ export async function snapshotArtifact(
     archivedVersions: archived.versions,
     changelogPath: toPattern(projectRoot, changelogPath),
     entry: renderEntryTitle({
-      change: input.change,
-      kind,
-      project,
       stamp,
-      rollbackFrom: null,
       version,
     }),
     kind,
     project,
-    rollbackCommand: version > 1 ? rollbackCommand(project, kind, version - 1) : null,
+    rollbackCommand:
+      version > 1 ? rollbackCommand(stagePath(project, kind), version - 1) : null,
     version,
     versionArchiveDir: archived.versions.length > 0 ? archived.dir : null,
     versionPath: toPattern(projectRoot, versionPath),
