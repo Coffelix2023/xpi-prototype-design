@@ -751,14 +751,14 @@ function indexOf(map: SemanticMap): SemanticIndex {
  * 页面没登记时退一步按原文当前缀：草稿阶段的字典常常只有元素、`pages` 还是空的，
  * 此时 `chat.composer` 仍应能按 `chat` 收窄。
  */
-function pagePrefix(map: SemanticMap, page: string): string | null {
+export function pagePrefix(map: SemanticMap, page: string): string | null {
   const needle = page.trim();
   if (needle.length === 0) return null;
   const matched = map.pages.find((item) => item.short === needle || item.id === needle);
   return matched ? matched.id : needle;
 }
 
-function withinPage(prefix: string, element: SemanticElement): boolean {
+export function withinPage(prefix: string, element: SemanticElement): boolean {
   return element.id === prefix || element.id.startsWith(`${prefix}.`);
 }
 

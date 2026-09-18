@@ -100,7 +100,7 @@ export interface ParseToolResult {
   total: number;
 }
 
-interface LoadedMap {
+export interface LoadedMap {
   map: SemanticMap | null;
   mapPath: string;
   /** 文件在、但读不出来（YAML 坏了，或没有 `meta`）——与「文件不存在」不同。 */
@@ -114,7 +114,7 @@ interface LoadedMap {
  * `meta`」也走 null 那条路。后者若报成「缺失」，Agent 会去重新建骨架，而骨架又是
  * 幂等的（不覆写）——于是它会卡在一个看不见的原因上。所以这里补一次 `stat` 区分。
  */
-async function readProjectMap(
+export async function readProjectMap(
   projectRoot: string,
   project: string,
 ): Promise<LoadedMap> {

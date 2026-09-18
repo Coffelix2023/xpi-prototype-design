@@ -27,6 +27,7 @@ import {
   type VersionBump,
 } from "./contracts.js";
 import { registerPrototypeGate } from "./gate.js";
+import { registerPromotionTools } from "./promotion-check.js";
 import { promptRequirement, requirementTitle } from "./requirement-editor.js";
 import { registerSemanticTools } from "./semantic-annotate.js";
 import { registerSemanticReadTools } from "./semantic-tools.js";
@@ -362,6 +363,7 @@ export default function xpiPrototypeDesign(pi: ExtensionAPI): void {
   registerPrototypeGate(pi);
   registerSemanticTools(pi);
   registerSemanticReadTools(pi);
+  registerPromotionTools(pi);
 
   pi.registerCommand("xpi-prototype-design", {
     description:

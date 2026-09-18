@@ -97,7 +97,7 @@ afterEach(async () => {
 });
 
 describe("extension registration", () => {
-  it("exposes one command with the six modes plus eleven tools", () => {
+  it("exposes one command with the six modes plus twelve tools", () => {
     const { commands, tools } = harness();
     const command = commands.get("xpi-prototype-design");
     expect(command).toBeDefined();
@@ -107,6 +107,7 @@ describe("extension registration", () => {
       "prototype_migration_scan",
       "prototype_page_impact",
       "prototype_preview",
+      "prototype_promotion_check",
       "prototype_setup",
       "prototype_snapshot",
       "prototype_status",
@@ -777,6 +778,10 @@ describe("tool schemas", () => {
       extra: {},
       required: true,
     },
+    prototype_promotion_check: {
+      extra: {},
+      required: false,
+    },
     prototype_setup: {
       extra: {},
       required: true,
@@ -817,7 +822,7 @@ describe("tool schemas", () => {
     "Upper",
   ];
 
-  it("registers exactly the eleven tools", () => {
+  it("registers exactly the twelve tools", () => {
     const { tools } = harness();
     expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(extras).sort());
   });
