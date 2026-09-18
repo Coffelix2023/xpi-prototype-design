@@ -33,7 +33,7 @@ import { registerSemanticTools } from "./semantic-annotate.js";
 import { registerSemanticReadTools } from "./semantic-tools.js";
 import { registerPrototypeTools } from "./tools.js";
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 
 /**
  * 参数补全：六个模式，用 pi-tui 的 fuzzyFilter。
