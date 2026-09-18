@@ -1,99 +1,65 @@
-# prototype-screen-orchestration Specification
-
-## Purpose
-
-为同一产品中的多个页面提供稳定身份、混合成熟度，以及不受阶段切换破坏的页面链接与设计推进能力；产品地图是页面身份的事实来源，页面级操作彼此隔离。
-
-## Requirements
-
-### Requirement: Product pages have stable identities
-The system SHALL represent each product page with a project-scoped stable page ID, human-readable name, implementation source, fidelity, and optional route reference.
-
-#### Scenario: Mixed page maturity is represented
-- **WHEN** a product contains production, wireframe, high-fidelity, and ordinary prototype pages
-- **THEN** the system SHALL represent them together without forcing them into one project-wide fidelity
-
-#### Scenario: Page fidelity advances
-- **WHEN** a page advances from wireframe to high-fidelity
-- **THEN** its stable page ID and declared links SHALL remain unchanged
-
-### Requirement: Page links use stable targets
-The system SHALL resolve internal prototype links through stable page IDs rather than requiring callers to depend on versioned or stage-specific file paths.
-
-#### Scenario: Link survives fidelity change
-- **WHEN** the target page changes its artifact from wireframe to high-fidelity
-- **THEN** a link addressed to that page ID SHALL continue to resolve to the current declared target
-
-#### Scenario: Unresolved link is detected
-- **WHEN** a page declares a target page ID that is not registered
-- **THEN** validation SHALL report the unresolved target and SHALL NOT claim the product map is valid
-
-### Requirement: Page-scoped operations preserve boundaries
-The system SHALL scope planning, status, preview, snapshot, rollback, and write authorization to the selected page or explicitly selected page set.
-
-#### Scenario: Single page update
-- **WHEN** the user updates one page in a mixed-maturity product
-- **THEN** the operation SHALL identify that page as its scope and SHALL not silently modify sibling pages
-
-#### Scenario: Shared contract change
-- **WHEN** an operation changes shared navigation or page links
-- **THEN** the system SHALL display the affected pages before execution and require explicit confirmation
-
-### Requirement: Product status shows the page map
-The system SHALL provide a product-level view listing registered pages, maturity, implementation source, versions, and link validation status.
-
-#### Scenario: User chooses next work
-- **WHEN** the user requests design progress
-- **THEN** the status view SHALL make it possible to identify which page can be created, continued, migrated, or advanced next
+## ADDED Requirements
 
 ### Requirement: Fidelity advance is decided by remaining decisions
+
 The system SHALL require an explicit escalation decision before planning any fidelity stage, judged by which decisions remain unresolved and who decides them, and SHALL NOT treat the fidelity ladder as a default path that every page walks.
 
 #### Scenario: Only the implementer decides and the visual system is already fixed
+
 - **WHEN** the user is the only decision maker and the visual system is already established by an existing token contract or component library default
 - **THEN** the system SHALL plan the wireframe stage as the last prototype stage for that page
 - **THEN** the system SHALL NOT plan a high-fidelity stage
 
 #### Scenario: A non-implementing stakeholder must approve
+
 - **WHEN** a decision maker who does not read implementation code must approve the direction before implementation starts
 - **THEN** the system SHALL scope the high-fidelity stage to the minimum that answers the visual-direction question
 - **THEN** the system SHALL NOT require whole-product page or state coverage in that stage
 
 #### Scenario: Several visual directions are genuinely open
+
 - **WHEN** two or more visual directions are live candidates
 - **THEN** the system SHALL produce one screen per candidate so they can be compared
 - **THEN** the system SHALL NOT build a complete flow for any candidate
 
 #### Scenario: The chosen branch is recorded
+
 - **WHEN** the escalation decision is made
 - **THEN** the plan SHALL state which branch was chosen and why
 - **THEN** a later reader SHALL be able to tell a deliberate skip from an omission
 
 ### Requirement: Skipping a stage moves its obligations forward
+
 The system SHALL NOT treat skipping a fidelity stage as removing that stage's obligations; obligations defined for a skipped stage SHALL be discharged in the last stage that is actually produced.
 
 #### Scenario: High-fidelity stage is skipped
+
 - **WHEN** the escalation decision skips the high-fidelity stage
 - **THEN** state coverage (normal, empty, loading, error), copy close to real length, and semantic IDs for modifiable elements SHALL be produced in the wireframe stage
 
 #### Scenario: The wireframe output does not carry the moved obligations
+
 - **WHEN** a page skips the high-fidelity stage and its wireframe output lacks any of the moved obligations
 - **THEN** the system SHALL NOT present the skip as an acceptable trade
 - **THEN** the system SHALL NOT report the round as complete
 
 ### Requirement: Structural rework is separated from visual tuning
+
 The system SHALL classify each change made while advancing fidelity as either structural rework or visual tuning, and SHALL report structural rework during a fidelity advance as a violation of the inheritance discipline rather than as a normal part of the stage.
 
 #### Scenario: Advancing changes structure
+
 - **WHEN** advancing to the high-fidelity stage changes block order, information hierarchy, or content placement
 - **THEN** the system SHALL register the change as a deviation in the stage's `DELTA.md`
 - **THEN** the system SHALL report it as a departure from the inherited structure
 
 #### Scenario: Advancing changes only appearance
+
 - **WHEN** advancing to the high-fidelity stage changes only typography, spacing, density, or color
 - **THEN** the system SHALL NOT register a structural deviation
 
 #### Scenario: The same tuning would be repeated in production
+
 - **WHEN** an appearance adjustment would have to be repeated in the production implementation after the prototype stage
 - **THEN** the plan SHALL record that adjustment as deferred to the production stage
 - **THEN** the system SHALL NOT schedule the same adjustment in the prototype stage
