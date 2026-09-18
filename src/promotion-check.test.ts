@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARTIFACT_ROOT } from "./contracts.js";
+import { registerPromotionTools } from "./promotion-check.js";
 import {
   checkPromotion,
   findUnpromotedChildren,
-  registerPromotionTools,
-} from "./promotion-check.js";
+  hasDynamicAttribute,
+} from "./promotion-core.js";
 import { parseSemanticMap } from "./semantic-ui-map.js";
 
 type Handler = (
@@ -354,6 +355,108 @@ describe("源码侧匹配", () => {
   });
 });
 
+describe("属性写成动态表达式", () => {
+  it("动态信号只认 data-semantic-id={…}，字面量不算", () => {
+    expect(hasDynamicAttribute("<div data-semantic-id={NAV[view.id]} />")).toBe(true);
+    expect(hasDynamicAttribute('<div data-semantic-id="chat.a" />')).toBe(false);
+    expect(
+      hasDynamicAttribute(
+        '<div data-semantic-id="chat.a" />\n<div data-semantic-id={m[v]} />',
+      ),
+    ).toBe(true);
+  });
+
+  it("未命中且文件里有动态表达式 ⇒ dynamic_attribute，不是 missing_in_source", async () => {
+    await setup(
+      dictionary([
+        {
+          id: "chat.a",
+          impl: SRC,
+          short: "P1-1",
+        },
+        {
+          id: "chat.b",
+          impl: SRC,
+          short: "P1-2",
+        },
+      ]),
+      {
+        [SRC]: `${source("chat.a")}\n<Link data-semantic-id={NAV_SEMANTIC_ID[view.id]} />`,
+      },
+    );
+    const result = await checkPromotion(root, PROJECT);
+    // 字面量写成的那一个照常命中，动态那一个进新桶。
+    expect(result.matched).toBe(1);
+    expect(result.dynamic).toEqual([
+      "chat.b",
+    ]);
+    expect(result.dynamicTotal).toBe(1);
+    expect(result.missing).toEqual([]);
+    expect(result.missingTotal).toBe(0);
+  });
+
+  it("没有动态表达式时仍报 missing_in_source", async () => {
+    await setup(
+      dictionary([
+        {
+          id: "chat.a",
+          impl: SRC,
+          short: "P1-1",
+        },
+      ]),
+      {
+        [SRC]: source("chat.other"),
+      },
+    );
+    const result = await checkPromotion(root, PROJECT);
+    expect(result.missing).toEqual([
+      {
+        id: "chat.a",
+        path: SRC,
+        reason: null,
+      },
+    ]);
+    expect(result.dynamic).toEqual([]);
+  });
+
+  it("只有动态未命中时也算 issues，不得静默通过", async () => {
+    await setup(
+      dictionary([
+        {
+          id: "chat.a",
+          impl: SRC,
+          short: "P1-1",
+        },
+      ]),
+      {
+        [SRC]: "<Link data-semantic-id={T[view.id]} />",
+      },
+    );
+    const result = await checkPromotion(root, PROJECT);
+    expect(result.status).toBe("issues");
+  });
+
+  it("报告说明静态核对看不到，并给出两条出路", async () => {
+    await setup(
+      dictionary([
+        {
+          id: "chat.a",
+          impl: SRC,
+          short: "P1-1",
+        },
+      ]),
+      {
+        [SRC]: "<Link data-semantic-id={T[view.id]} />",
+      },
+    );
+    const text = await toolText({
+      project: PROJECT,
+    });
+    expect(text).toContain("静态核对看不到");
+    expect(text).toContain("动态表达式");
+    expect(text).toContain("全路径字面量重写");
+  });
+});
 describe("文件不可读", () => {
   it("文件不存在：报 missing_in_source 并带上原因", async () => {
     await setup(

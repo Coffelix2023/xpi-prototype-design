@@ -5,7 +5,10 @@
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@12.3.4",
-  "files": ["THEMES.md", "skills", "src"],
+  "files": ["THEMES.md", "skills", "src", "bin"],
+  "bin": {
+    "xpi-prototype-design-check": "./bin/check-promotion.mjs"
+  },
   "keywords": ["pi-package", "pi-extension"],
   "pi": {
     "extensions": ["./src/index.ts"],

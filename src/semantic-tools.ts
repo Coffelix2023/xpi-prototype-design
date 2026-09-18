@@ -5,26 +5,23 @@
  * 一个字节都不写，也就完全不碰计划闸门（`gate.ts` 只拦 `write` / `edit`）。
  * 「这个模块碰不碰盘」是评审时最需要一眼看出的属性，混进同一个文件就没了。
  *
- * 这里只把既有库函数包成运行时入口——`loadSemanticMap` / `validateSemanticMap` /
- * `parseInput`；类型真相仍在 `semantic-ui-map.ts`，本模块不复制类型。
+ * 这里只把既有库函数包成运行时入口——`validateSemanticMap` / `parseInput`；类型真相仍在
+ * `semantic-ui-map.ts`，本模块不复制类型。读字典那一层在 `semantic-map-io.ts`：它刻意
+ * 不碰 `typebox`，好让核对判定能在没有 Pi 运行时的环境里被复用（客户端 CI 调的就是它）。
  *
  * 无字典、字典读不出来、字典有问题，是**三种**不同的事，分别报：
  * 「没校验」绝不能渲染成「校验通过」。
  */
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { type LoadedMap, readProjectMap } from "./semantic-map-io.js";
 import {
   type ElementType,
   type Fidelities,
   type ImplMapping,
-  loadSemanticMap,
   parseInput,
   type SemanticElement,
-  type SemanticMap,
   type Status,
-  semanticMapPattern,
   type ValidationError,
   validateSemanticMap,
 } from "./semantic-ui-map.js";
@@ -98,56 +95,6 @@ export interface ParseToolResult {
   shown: number;
   status: ParseStatus;
   total: number;
-}
-
-export interface LoadedMap {
-  map: SemanticMap | null;
-  mapPath: string;
-  /** 文件在、但读不出来（YAML 坏了，或没有 `meta`）——与「文件不存在」不同。 */
-  unreadable: string | null;
-}
-
-/**
- * 读字典，把「没有字典」与「字典坏了」分开。
- *
- * `loadSemanticMap` 对不存在的文件返回 null、对坏 YAML 抛错，但「文件在、却没有
- * `meta`」也走 null 那条路。后者若报成「缺失」，Agent 会去重新建骨架，而骨架又是
- * 幂等的（不覆写）——于是它会卡在一个看不见的原因上。所以这里补一次 `stat` 区分。
- */
-export async function readProjectMap(
-  projectRoot: string,
-  project: string,
-): Promise<LoadedMap> {
-  const mapPath = semanticMapPattern(projectRoot, project);
-  try {
-    const map = await loadSemanticMap(projectRoot, project);
-    if (map)
-      return {
-        map,
-        mapPath,
-        unreadable: null,
-      };
-  } catch (error) {
-    return {
-      map: null,
-      mapPath,
-      unreadable: (error as Error).message,
-    };
-  }
-  try {
-    await stat(resolve(projectRoot, mapPath));
-  } catch {
-    return {
-      map: null,
-      mapPath,
-      unreadable: null,
-    };
-  }
-  return {
-    map: null,
-    mapPath,
-    unreadable: "字典文件存在，但顶层不是映射或缺 meta，读不出字典",
-  };
 }
 
 /** 校验项目字典。三态 + 「文件在但读不出来」，都不写盘。 */
