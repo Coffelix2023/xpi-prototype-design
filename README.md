@@ -49,13 +49,14 @@ Each product maintains one dictionary shared across pages and fidelities (wirefr
 
 The dictionary records element metadata (type, status, props contract, parent/children relationships, fidelities anchors, and the `impl` landing spot once an element is promoted to production) and supports both SPA (client-side routes like `#/chat`) and multi-page modes. The validator reports eight classes of problem: missing required fields, duplicate IDs/short codes, alias collisions, circular references, illegal state transitions, malformed fidelity paths, keys outside the closed sets, and malformed `impl` paths. The parser accepts short codes, full paths, or Chinese aliases, returning a unique match (with `impl` when the element has been promoted), a candidate list, or `unregistered`—never a silent guess.
 
-**Using it takes five steps:**
+**Using it takes six steps:**
 
 1. `prototype_setup` scaffolds an empty dictionary; the agent fills in pages and elements after digging into the requirements (field reference: [`docs/semantic-ui-map-schema.md`](./docs/semantic-ui-map-schema.md)).
 2. Before producing, run `semantic_ui_map_validate { project }` and fix every problem code first. `valid` means clean; `missing` means no dictionary exists yet, **not** a pass.
 3. Every modifiable element in the HTML gets an `id` equal to its short code or full path.
 4. After producing the HTML, call `semantic_ui_map_annotate { project, pageId, kind }`: it adds `data-semantic-badge` / `data-status` to the elements whose `id` matched, and injects the badge system (CSS + a toggle button). Idempotent, safe to re-run.
 5. When the user points at an element in plain language, call `semantic_ui_map_parse { project, input: "折叠按钮", page: "chat" }`. It returns the element (carrying its `impl` production landing spot when one is registered), a candidate list capped at 10 plus the total (then ask the user — never pick one yourself), or `unregistered`.
+6. Once an element has been promoted, run `prototype_promotion_check { project, pageId }`. It resolves each registered `impl.path`, matches the **full path** value of `data-semantic-id` in that file, and reports four classes separately: promoted but absent from source, a container promoted while its `locked` children were not, source ids missing from the dictionary, and matches. Read-only — it never writes, never blocks, and never takes part in the write gate. `locked` is how a child says "this one ships", so an unpromoted `locked` child is exactly the menu-trigger-without-its-items case.
 
 `prototype_snapshot` auto-increments `meta.version` after writing the snapshot. `meta.annotate_default: false` starts with badges hidden (the button reads `OFF`). With no dictionary the annotate tool writes nothing at all and previews keep working—the dictionary is an enhancement, not a blocker. A complete runnable example lives in [`examples/semantic-ui-map/`](./examples/semantic-ui-map/).
 
@@ -180,6 +181,7 @@ The command never creates directories: the project slug is decided by the agent 
 | `semantic_ui_map_annotate` | `current/**/*.html` of the selected page stage, plus the product-level semantic dictionary | Adds `data-semantic-badge` / `data-status` to elements whose `id` matched a short code or full path, and injects the badge system (CSS + toggle button) | Idempotent, re-running never stacks; writes nothing at all when the dictionary is missing and just reports the skip; in `multi-page` mode it skips elements whose anchor points at another file |
 | `semantic_ui_map_validate` | The product-level semantic dictionary (`<project>/semantic-ui-map.yaml`) | Nothing (read-only) | Never writes; when the dictionary is absent it reports `status: "missing"` and says explicitly that no validation happened, never an empty problem list posing as a pass |
 | `semantic_ui_map_parse` | The same dictionary | Nothing (read-only) | Never writes, and never picks a candidate: an ambiguous alias returns at most 10 candidates plus the total and asks for a short code or a `page` context; a hit that has registered `impl` returns it, so the agent can walk on to the production source |
+| `prototype_promotion_check` | The registered production landing spots (`impl.path`) plus those source files | Nothing (read-only) | Never writes, never blocks, and never participates in the write gate. Reports four classes separately: promoted but not found in source, container promoted while its `locked` children were not, source `data-semantic-id` values missing from the dictionary, and matches. Matches the **full path** value only — a short code in source is reported as unregistered, not as a hit. A missing or unreadable dictionary says explicitly that no check happened |
 
 The write gate is a `tool_call` hook registered in `gate.ts`: when a `write` / `edit` targets a stage's `current/**` — project-level or page-level — and `gate.json` holds no `execute` for **this round** (wrong answer, or a baseline that no longer matches the version count), the call is blocked and the reason is handed back to the model. The stage ledger (`plan.md`, `tasks.md`) sits outside that gate on purpose — its real content is meant to be written only after the user has confirmed (`prototype_setup` lays down empty skeletons).
 
@@ -275,6 +277,7 @@ ln -s "$(pwd)" ~/.pi/agent/extensions/xpi-prototype-design   # live loop: /reloa
     ├── badge-template.ts      # badge CSS/JS templates and HTML injection
     ├── semantic-annotate.ts   # semantic_ui_map_annotate: lands the dictionary on current/ HTML
     ├── semantic-tools.ts      # semantic_ui_map_validate / semantic_ui_map_parse: read-only
+    ├── promotion-check.ts     # prototype_promotion_check: dictionary vs production source, read-only
     ├── tools.ts               # the registered read/write tools
     └── gate.ts                # plan gate tool + the current/ write block
 ```

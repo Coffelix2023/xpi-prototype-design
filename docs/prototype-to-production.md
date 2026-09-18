@@ -116,6 +116,7 @@ elements:
 - **`impl` 缺失 = 还没推进生产**，不是缺字段。与 `fidelities` 里的 `null` 同理。
 - **`status: locked` 才推进**。`proposed` 的元素结构还会变，推进等于给自己挖返工坑。
 - **推进不改 `id` / `short`**。改了就等于砍断脊柱，用户的口语引用全部失效。
+- **推进对包含边完整**。推进一个元素时，它的 `children` 里每个 `status: locked` 的子元素必须**同轮一并推进**。不想推进某个子项，就**别把它置为 `locked`**——「本就不打算进生产」的合法表达是状态，不是新增豁免字段。容器搬了、子项没搬，是「卡片 `⋯` 菜单」最常见的漏法。
 
 > 落地提醒：真要把 `impl` 写进本扩展，按 `AGENTS.md` §6 同步四处——
 > `src/semantic-ui-map.ts` 类型与闭集、`src/contracts.ts` 出口、
@@ -190,6 +191,11 @@ components/ui/                       # shadcn 生成物，不手改
 
 ## 7. 一致性 check
 
+> **这是降级替代，不是唯一实现。** 装了 `xpi-prototype-design` 时优先跑 `prototype_promotion_check`
+> `{ project, pageId }`——它走真的 YAML 解析器，不会被字典缩进变化骗过，也不靠 `awk` 配对。
+> CI 里要一道独立把关、或没装扩展时，再用下面这段脚本。
+> **两边口径必须一致**：源码侧一律匹配 `data-semantic-id` 的**全路径值**，短码不作匹配依据。
+
 字典与代码会漂，需要一个能跑的最小闸门。**不解析 YAML**——一行 grep 拿到 promoted 元素，
 逐个在源码里找：
 
@@ -227,6 +233,9 @@ exit "$fail"
 - LocatorJS / click-to-component / react-dev-inspector 依赖 Babel 注入或 React fiber
   `_debugSource`；React 19 起改为 `_debugStack`，旧方案需换实现。
 - changesets 以 markdown 文件记录发布意图，`fixed` / `linked` 让 UI kit 共享版本号。
+- 本扩展**永远运行在目标项目的 `ctx.cwd` 里**（用户在自己的 web-app 仓库装上它），所以字典、线框 HTML、
+  成品源码、以及 `impl.path` 相对的那个项目根**全在同一个 `cwd` 下**。据此，「目标 web app 仓库与本扩展
+  同仓 / monorepo / 完全分离」不是三选一：整条「原型 → 成品」链路都在同一个仓库内，`impl.path` 直接可达。
 
 **推断（未经本项目验证）**
 - 用户口语引用的解析路径（`parse` → `anchor_grep` → `replace`）在真实项目上足够精准。
@@ -236,7 +245,6 @@ exit "$fail"
 - §7 的 awk 配对依赖字典缩进恒定（元素键 2 空格、`impl.path` 6 空格）。字典结构变了它会静默漏检。
 
 **未决问题**
-- 目标 web app 仓库与本扩展的关系：同仓、monorepo、还是完全分离？影响 check 脚本落点与字典路径解析。
 - 一个原型元素对应多处生产实现时（响应式拆成 mobile/desktop 两个组件），`impl` 是数组还是拆两个元素 ID？
 - ~~`impl` 是否要工具化（新增 `prototype_promote` 校验工具），还是长期停在纯约定？~~ 已定：不新增 promote 工具，
   改为扩既有三处——加载层读 `impl`、`semantic_ui_map_validate` 校验其路径格式、`semantic_ui_map_parse` 命中时返回它。

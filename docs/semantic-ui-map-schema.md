@@ -110,11 +110,16 @@ impl:
 
 **只查格式，不查文件是否存在**：推进既可能「先登记后实现」也可能「先实现后登记」，规则不该假设顺序——查存在性会把刚登记的映射判红，Agent 就会去删映射而不是去写实现。
 
-三条纪律：
+四条纪律：
 
 - `impl` 缺失 = 还没推进生产；
 - 只有 `status: locked` 才推进：`proposed` 的元素结构还会变，推进等于给自己挖返工坑；
+- **推进对包含边完整**：推进一个元素时，它的 `children` 里每个 `status: locked` 的子元素必须同轮一并推进。不想推进某个子项就别把它置为 `locked`——「本就不打算进生产」的合法表达是状态，不是新增豁免字段；
 - 推进不得改 `id` / `short`：改了就是砍断脊柱，用户的口语引用全部失效。
+
+**搬运进度就是 `impl` 本身**，没有第二份清单：缺失即未推进、存在即已推进。不另建进度文件、不寄生在 `tasks.md`——那个文件每轮深挖后被覆写，而且里面的任务行受计划闸门管，而搬运写的是成品源码，闸门不管。
+
+**核对**：字典说搬了、源码里到底有没有，由 `prototype_promotion_check` 回答（见 §11）。它把已登记 `impl` 的元素与生产源码里的 `data-semantic-id` 比对，四类分开报。**只报告，不写盘、不阻断**。
 
 ## 8. 双码格式
 
@@ -166,13 +171,14 @@ props:
 
 ## 11. 工具调用契约
 
-字典的读写入口都是**工具**，不让 Agent 直接改 YAML。分工：**库函数**（`src/semantic-ui-map.ts`）只做纯计算，类型真相在那里；**工具**（`src/semantic-tools.ts` 只读、`src/semantic-annotate.ts` 写盘）负责路径解析、输出整形与截断。
+字典的读写入口都是**工具**，不让 Agent 直接改 YAML。分工：**库函数**（`src/semantic-ui-map.ts`）只做纯计算，类型真相在那里；**工具**（`src/semantic-tools.ts` 与 `src/promotion-check.ts` 只读、`src/semantic-annotate.ts` 写盘）负责路径解析、输出整形与截断。
 
 | 工具 | 入参 | 返回 | 写盘 |
 | :--- | :--- | :--- | :--- |
 | `semantic_ui_map_validate` | `{ project }` | `status`：`valid` / `invalid` / `missing` / `unreadable`；`errors[]`（`code` + `path` + `message`，封顶 10 条）；`total` / `shown` 计数；`version` | 否 |
 | `semantic_ui_map_parse` | `{ project, input, page? }` | `status`：`matched` / `ambiguous` / `unregistered` / `missing` / `unreadable`；命中给元素摘要（`id` / `short` / `type` / `status` / `fidelities` / `impl`，未推进生产时 `impl` 为 `null`），多候选给封顶 10 条 + `total` | 否 |
 | `semantic_ui_map_annotate` | `{ project, pageId, kind }` | 标注了哪些文件、各补了几处徽标、哪些文件没命中 | 是（只写该页面阶段 `current/`） |
+| `prototype_promotion_check` | `{ project, pageId? }` | 四类分开报：已推进但源码找不到（带 `impl.path`）、容器搬了子项没搬（列出未推进的子元素）、源码有而字典没登记、命中计数；各类分别封顶并报总数 | 否（读成品源码） |
 
 分工与边界：
 
@@ -180,7 +186,7 @@ props:
 - **未知键由加载层带出来**：`validateSemanticMap` 收的是已归一化的 `SemanticMap`，没有 YAML 原文，所以加载阶段丢弃的键记在 `SemanticMap.unknownKeys` 上，再由校验器报 `unknown-key`。这是「不静默通过」这条纪律唯一的实现路径。
 - `missing`（文件不存在）与 `unreadable`（文件在、但 YAML 坏或缺 `meta`）是两回事，而且都**不是「通过」**：没校验就说没校验。`validateSemanticMap` 收的是已解析的 map，本来就没有「缺失」这一态，所以这两态在工具层补。
 - 输出上限 2000 字符，列表类另按 10 条封顶，并一律报「共 N 条，已显示 M 条」——截断不能被当成完整结果。
-- 前两个工具**只读**，因此不经过计划闸门（`src/gate.ts` 只拦 `current/**` 的 `write` / `edit`）。分文件的理由也在这里：一个模块碰不碰盘，看文件名就该知道。
+- 三个只读工具（`validate` / `parse` / `promotion_check`）都不经过计划闸门（`src/gate.ts` 只拦 `current/**` 的 `write` / `edit`），也不改变它的射程。分文件的理由也在这里：一个模块碰不碰盘、碰哪一种盘，看文件名就该知道——`semantic-tools.ts` 只读 YAML，`promotion-check.ts` 多了一样东西：**读任意成品源码**，所以它单独一个文件。
 
 ## 12. 支持的 YAML 子集
 
